@@ -9,7 +9,21 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo "🚀 Započinjem postavljanje Ubuntu 24.04 servera..."
+echo "🚀 Započinjem potpuno automatizirano postavljanje Ubuntu 24.04 servera..."
+
+# ==========================================
+# POSTAVKE ZA LOGIRANJE I GREŠKE
+# ==========================================
+LOG_FILE="/var/log/phpmeetup_install.log"
+> "$LOG_FILE" # Čisti log datoteku pri svakom novom pokretanju
+
+# Funkcija koja se poziva ako bilo koja naredba baci grešku
+error_handler() {
+    echo -e "\n\n❌ Došlo je do greške! Skripta je zaustavljena."
+    echo "Detalje o grešci možete pronaći u log datoteci: $LOG_FILE"
+    exit 1
+}
+trap 'error_handler' ERR
 
 # ==========================================
 # PRIKUPLJANJE PODATAKA OD KORISNIKA
@@ -30,11 +44,7 @@ read -p "ADMIN_EMAIL [tjakopec@gmail.com]: " input_admin_email
 ADMIN_EMAIL=${input_admin_email:-tjakopec@gmail.com}
 
 echo "------------------------------------------------------------------------"
-echo "⏳ Pokrećem instalaciju sa sljedećim postavkama:"
-echo "Repozitorij: $REPO_URL"
-echo "Direktorij:  $REPO_DIR"
-echo "Domena:      $DOMAIN"
-echo "Email:       $ADMIN_EMAIL"
+echo "⏳ Započinjem instalaciju. Sav izlaz bilježi se u: $LOG_FILE"
 echo "------------------------------------------------------------------------"
 
 # ==========================================
@@ -46,76 +56,85 @@ DB_USER="symfony_user"
 DB_PASS=$(openssl rand -hex 16)
 APP_SECRET=$(openssl rand -hex 24)
 
-# ==========================================
-# ISKLJUČIVANJE INTERAKCIJE ZA APT-GET
-# ==========================================
+# Isključivanje interakcije za apt-get
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 export NEEDRESTART_SUSPEND=1
-
 APT_FLAGS="-y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
+
+# ==========================================
+# FUNKCIJA ZA PROGRESS BAR
+# ==========================================
+TOTAL_STEPS=12
+CURRENT_STEP=0
+
+show_progress() {
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    local message="$1"
+    local percent=$((CURRENT_STEP * 100 / TOTAL_STEPS))
+    local filled=$((CURRENT_STEP * 40 / TOTAL_STEPS))
+    local empty=$((40 - filled))
+    
+    # Generiranje ispunjenog i praznog dijela bara
+    local bar_filled=$(printf "%${filled}s" | tr ' ' '█')
+    local bar_empty=$(printf "%${empty}s" | tr ' ' '░')
+    
+    # \r vraća kursor na početak linije, \033[K briše ostatak linije
+    printf "\r\033[K[%s%s] %3d%% | %s" "$bar_filled" "$bar_empty" "$percent" "$message"
+}
 
 # ==========================================
 # 1. AŽURIRANJE I DODAVANJE PHP REPOZITORIJA
 # ==========================================
-echo "📦 Ažuriranje sustava i dodavanje PPA za PHP 8.5..."
-apt-get update
-apt-get upgrade $APT_FLAGS
-
-apt-get install $APT_FLAGS software-properties-common curl git unzip acl mariadb-server \
-    nginx certbot python3-certbot-nginx ufw
-
-LC_ALL=C.UTF-8 add-apt-repository -y ppa:ondrej/php
-apt-get update
+show_progress "Ažuriranje OS-a i dodavanje repozitorija..."
+apt-get update >> "$LOG_FILE" 2>&1
+apt-get upgrade $APT_FLAGS >> "$LOG_FILE" 2>&1
+apt-get install $APT_FLAGS software-properties-common curl git unzip acl mariadb-server nginx certbot python3-certbot-nginx ufw >> "$LOG_FILE" 2>&1
+LC_ALL=C.UTF-8 add-apt-repository -y ppa:ondrej/php >> "$LOG_FILE" 2>&1
+apt-get update >> "$LOG_FILE" 2>&1
 
 # ==========================================
 # 2. INSTALACIJA PHP 8.5 I EKSTENZIJA
 # ==========================================
-echo "🐘 Instalacija PHP 8.5 i potrebnih ekstenzija..."
+show_progress "Instalacija PHP 8.5 i ekstenzija..."
 apt-get install $APT_FLAGS php8.5-cli php8.5-fpm php8.5-mysql php8.5-xml \
-    php8.5-mbstring php8.5-curl php8.5-intl php8.5-zip php8.5-bcmath
-
-update-alternatives --set php /usr/bin/php8.5
+    php8.5-mbstring php8.5-curl php8.5-intl php8.5-zip php8.5-bcmath >> "$LOG_FILE" 2>&1
+update-alternatives --set php /usr/bin/php8.5 >> "$LOG_FILE" 2>&1
 
 # ==========================================
 # 3. INSTALACIJA COMPOSERA
 # ==========================================
+show_progress "Instalacija Composera..."
 if ! command -v composer &> /dev/null; then
-    echo "🎼 Instalacija Composera..."
-    curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+    curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer >> "$LOG_FILE" 2>&1
 fi
 
 # ==========================================
 # 4. POSTAVLJANJE MARIADB BAZE PODATAKA
 # ==========================================
-echo "🗄️ Postavljanje MariaDB baze i korisnika..."
-systemctl start mariadb
-systemctl enable mariadb
-
-mysql -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};"
-mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';"
-mysql -e "GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';"
-mysql -e "FLUSH PRIVILEGES;"
+show_progress "Konfiguracija MariaDB baze..."
+systemctl start mariadb >> "$LOG_FILE" 2>&1
+systemctl enable mariadb >> "$LOG_FILE" 2>&1
+mysql -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};" >> "$LOG_FILE" 2>&1
+mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';" >> "$LOG_FILE" 2>&1
+mysql -e "GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';" >> "$LOG_FILE" 2>&1
+mysql -e "FLUSH PRIVILEGES;" >> "$LOG_FILE" 2>&1
 
 # ==========================================
 # 5. KLONIRANJE REPOZITORIJA
 # ==========================================
-echo "📥 Kloniranje Git repozitorija..."
-mkdir -p /var/www
-
+show_progress "Kloniranje Git repozitorija..."
+mkdir -p /var/www >> "$LOG_FILE" 2>&1
 if [ -d "$REPO_DIR" ]; then
-    echo "⚠️ Direktorij već postoji. Brišem staru verziju..."
-    rm -rf "$REPO_DIR"
+    rm -rf "$REPO_DIR" >> "$LOG_FILE" 2>&1
 fi
-
-git clone "$REPO_URL" "$REPO_DIR"
+git clone "$REPO_URL" "$REPO_DIR" >> "$LOG_FILE" 2>&1
 cd "$SYMFONY_DIR"
 
 # ==========================================
 # 6. GENERIRANJE .env DATOTEKE
 # ==========================================
-echo "⚙️ Kreiranje .env datoteke sa svježim podacima..."
-
+show_progress "Generiranje .env datoteke..."
 cat <<EOF > .env
 APP_ENV=dev
 APP_SECRET=${APP_SECRET}
@@ -124,45 +143,38 @@ DATABASE_URL="mysql://${DB_USER}:${DB_PASS}@127.0.0.1:3306/${DB_NAME}?serverVers
 EOF
 
 # ==========================================
-# 7. INSTALACIJA OVISNOSTI I INICIJALIZACIJA BAZE
+# 7. INSTALACIJA SYMFONY OVISNOSTI
 # ==========================================
-echo "📚 Pokretanje composer install..."
+show_progress "Preuzimanje Composer paketa..."
 export COMPOSER_ALLOW_SUPERUSER=1
-composer install --optimize-autoloader --no-interaction
-
-echo "🧹 Brisanje Symfony cache-a..."
-php bin/console cache:clear
-
-echo "🏗️ Izvođenje migracija..."
-php bin/console doctrine:migrations:migrate --no-interaction
-
-echo "🌱 Učitavanje testnih podataka (Fixtures)..."
-php bin/console doctrine:fixtures:load --group=all --no-interaction
+composer install --optimize-autoloader --no-interaction >> "$LOG_FILE" 2>&1
 
 # ==========================================
-# 8. POSTAVLJANJE DOZVOLA (PERMISSIONS)
+# 8. INICIJALIZACIJA BAZE (MIGRACIJE I FIXTURES)
 # ==========================================
-echo "🔒 Postavljanje dozvola..."
-chown -R www-data:www-data "$REPO_DIR"
+show_progress "Postavljanje strukture baze i testnih podataka..."
+php bin/console cache:clear >> "$LOG_FILE" 2>&1
+php bin/console doctrine:migrations:migrate --no-interaction >> "$LOG_FILE" 2>&1
+php bin/console doctrine:fixtures:load --group=all --no-interaction >> "$LOG_FILE" 2>&1
 
+# ==========================================
+# 9. POSTAVLJANJE DOZVOLA
+# ==========================================
+show_progress "Podešavanje sigurnosnih dozvola..."
+chown -R www-data:www-data "$REPO_DIR" >> "$LOG_FILE" 2>&1
 HTTPDUSER=$(ps axo user,comm | grep -E '[a]pache|[h]ttpd|[_]www|[w]ww-data|[n]ginx' | grep -v root | head -1 | cut -d\  -f1)
-setfacl -dR -m u:"$HTTPDUSER":rwX -m u:$(whoami):rwX var
-setfacl -R -m u:"$HTTPDUSER":rwX -m u:$(whoami):rwX var
+setfacl -dR -m u:"$HTTPDUSER":rwX -m u:$(whoami):rwX var >> "$LOG_FILE" 2>&1
+setfacl -R -m u:"$HTTPDUSER":rwX -m u:$(whoami):rwX var >> "$LOG_FILE" 2>&1
 
 # ==========================================
-# 9. POSTAVLJANJE NGINX VHOSTA
+# 10. POSTAVLJANJE NGINX VHOSTA
 # ==========================================
-echo "🌐 Postavljanje Nginx virtualnog hosta za ${DOMAIN}..."
-
+show_progress "Konfiguracija Nginx web servera..."
 cat <<EOF > /etc/nginx/sites-available/${DOMAIN}
 server {
     server_name ${DOMAIN} www.${DOMAIN};
     root ${SYMFONY_DIR}/public;
-
-    location / {
-        try_files \$uri /index.php\$is_args\$args;
-    }
-
+    location / { try_files \$uri /index.php\$is_args\$args; }
     location ~ ^/index\.php(/|$) {
         fastcgi_pass unix:/run/php/php8.5-fpm.sock;
         fastcgi_split_path_info ^(.+\.php)(/.*)$;
@@ -171,39 +183,37 @@ server {
         fastcgi_param DOCUMENT_ROOT \$realpath_root;
         internal;
     }
-
-    location ~ \.php$ {
-        return 404;
-    }
-
+    location ~ \.php$ { return 404; }
     error_log /var/log/nginx/${DOMAIN}_error.log;
     access_log /var/log/nginx/${DOMAIN}_access.log;
 }
 EOF
-
-ln -sf /etc/nginx/sites-available/${DOMAIN} /etc/nginx/sites-enabled/${DOMAIN}
-rm -f /etc/nginx/sites-enabled/default
-systemctl restart nginx
-
-# ==========================================
-# 10. GENERIRANJE SSL CERTIFIKATA (CERTBOT)
-# ==========================================
-echo "🔐 Generiranje SSL certifikata s Certbotom..."
-certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos -m "${ADMIN_EMAIL}" --redirect
+ln -sf /etc/nginx/sites-available/${DOMAIN} /etc/nginx/sites-enabled/${DOMAIN} >> "$LOG_FILE" 2>&1
+rm -f /etc/nginx/sites-enabled/default >> "$LOG_FILE" 2>&1
+systemctl restart nginx >> "$LOG_FILE" 2>&1
 
 # ==========================================
-# 11. POSTAVLJANJE VATROZIDA (UFW)
+# 11. GENERIRANJE SSL CERTIFIKATA (CERTBOT)
 # ==========================================
-echo "🛡️ Konfiguriranje UFW vatrozida..."
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw --force enable
+show_progress "Izdavanje besplatnog SSL certifikata..."
+certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos -m "${ADMIN_EMAIL}" --redirect >> "$LOG_FILE" 2>&1
+
+# ==========================================
+# 12. POSTAVLJANJE VATROZIDA (UFW)
+# ==========================================
+show_progress "Paljenje i podešavanje vatrozida..."
+ufw allow 22/tcp >> "$LOG_FILE" 2>&1
+ufw allow 80/tcp >> "$LOG_FILE" 2>&1
+ufw allow 443/tcp >> "$LOG_FILE" 2>&1
+ufw --force enable >> "$LOG_FILE" 2>&1
+
+# Prijelom linije kako završna poruka ne bi pregazila progress bar
+echo -e "\n"
 
 echo "====================================================="
 echo "✅ POSTAVLJANJE JE USPJEŠNO ZAVRŠENO!"
 echo "====================================================="
-echo "Web adresa:          https://${DOMAIN}"
+echo "URL:                 https://${DOMAIN}"
 echo "Glavni repozitorij:  $REPO_DIR"
 echo "Symfony aplikacija:  $SYMFONY_DIR"
 echo "Baza podataka:       $DB_NAME"
