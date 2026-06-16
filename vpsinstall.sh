@@ -9,7 +9,16 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo "🚀 Započinjem postavljanje Ubuntu 24.04 servera za Symfony (PHP 8.5 + Nginx + SSL)..."
+echo "🚀 Započinjem potpuno automatizirano postavljanje Ubuntu 24.04 servera..."
+
+# ==========================================
+# ISKLJUČIVANJE INTERAKCIJE
+# ==========================================
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
+
+APT_FLAGS="-y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
 
 # ==========================================
 # KONFIGURACIJSKE VARIJABLE
@@ -18,7 +27,6 @@ REPO_URL="https://github.com/tjakopec/phpmeetup.git"
 REPO_DIR="/var/www/phpmeetup_repo"
 SYMFONY_DIR="${REPO_DIR}/phpmeetupHuman"
 
-# Postavke domene i certbot
 DOMAIN="unixoidi.pro"
 ADMIN_EMAIL="tjakopec@gmail.com" 
 
@@ -32,10 +40,10 @@ APP_SECRET=$(openssl rand -hex 24)
 # ==========================================
 echo "📦 Ažuriranje sustava i dodavanje PPA za PHP 8.5..."
 apt-get update
-apt-get upgrade -y
+apt-get upgrade $APT_FLAGS
 
-apt-get install -y software-properties-common curl git unzip acl mariadb-server \
-    nginx certbot python3-certbot-nginx
+apt-get install $APT_FLAGS software-properties-common curl git unzip acl mariadb-server \
+    nginx certbot python3-certbot-nginx ufw
 
 LC_ALL=C.UTF-8 add-apt-repository -y ppa:ondrej/php
 apt-get update
@@ -44,7 +52,7 @@ apt-get update
 # 2. INSTALACIJA PHP 8.5 I EKSTENZIJA
 # ==========================================
 echo "🐘 Instalacija PHP 8.5 i potrebnih ekstenzija..."
-apt-get install -y php8.5-cli php8.5-fpm php8.5-mysql php8.5-xml \
+apt-get install $APT_FLAGS php8.5-cli php8.5-fpm php8.5-mysql php8.5-xml \
     php8.5-mbstring php8.5-curl php8.5-intl php8.5-zip php8.5-bcmath
 
 update-alternatives --set php /usr/bin/php8.5
@@ -91,7 +99,6 @@ echo "⚙️ Kreiranje .env datoteke sa svježim podacima..."
 cat <<EOF > .env
 APP_ENV=dev
 APP_SECRET=${APP_SECRET}
-DEFAULT_URI=https://${DOMAIN}
 DATABASE_URL="mysql://${DB_USER}:${DB_PASS}@127.0.0.1:3306/${DB_NAME}?serverVersion=10.11.8-MariaDB&charset=utf8mb4"
 EOF
 
@@ -105,7 +112,8 @@ composer install --optimize-autoloader --no-interaction
 echo "🧹 Brisanje Symfony cache-a..."
 php bin/console cache:clear
 
-echo "🏗️ Izvođenje migracija..."
+echo "🏗️ Generiranje i izvođenje migracija..."
+php bin/console make:migration --no-interaction || true
 php bin/console doctrine:migrations:migrate --no-interaction
 
 echo "🌱 Učitavanje testnih podataka (Fixtures)..."
@@ -122,11 +130,10 @@ setfacl -dR -m u:"$HTTPDUSER":rwX -m u:$(whoami):rwX var
 setfacl -R -m u:"$HTTPDUSER":rwX -m u:$(whoami):rwX var
 
 # ==========================================
-# 9. POSTAVLJANJE NGINX VHOST
+# 9. POSTAVLJANJE NGINX VHOSTA
 # ==========================================
 echo "🌐 Postavljanje Nginx virtualnog hosta za ${DOMAIN}..."
 
-# Znak '$' se escapa kao '\$' unutar Nginx konfiguracije kako ga Bash ne bi interpretirao kao varijablu
 cat <<EOF > /etc/nginx/sites-available/${DOMAIN}
 server {
     server_name ${DOMAIN} www.${DOMAIN};
@@ -154,7 +161,6 @@ server {
 }
 EOF
 
-# Uključivanje vhosta i ponovno pokretanje Nginxa
 ln -sf /etc/nginx/sites-available/${DOMAIN} /etc/nginx/sites-enabled/${DOMAIN}
 rm -f /etc/nginx/sites-enabled/default
 systemctl restart nginx
@@ -163,8 +169,16 @@ systemctl restart nginx
 # 10. GENERIRANJE SSL CERTIFIKATA (CERTBOT)
 # ==========================================
 echo "🔐 Generiranje SSL certifikata s Certbotom..."
-# Naredba će automatski rekonfigurirati Nginx da preusmjerava HTTP na HTTPS (--redirect)
-certbot --nginx -d "${DOMAIN}" -d "www.${DOMAIN}" --non-interactive --agree-tos -m "${ADMIN_EMAIL}" --redirect
+certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos -m "${ADMIN_EMAIL}" --redirect
+
+# ==========================================
+# 11. POSTAVLJANJE VATROZIDA (UFW)
+# ==========================================
+echo "🛡️ Konfiguriranje UFW vatrozida..."
+ufw allow 22/tcp
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw --force enable
 
 echo "====================================================="
 echo "✅ POSTAVLJANJE JE USPJEŠNO ZAVRŠENO!"
