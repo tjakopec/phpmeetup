@@ -76,8 +76,8 @@ show_progress() {
     local empty=$((40 - filled))
     
     # Generiranje ispunjenog i praznog dijela bara
-    local bar_filled=$(printf "%${filled}s" | tr ' ' '█')
-    local bar_empty=$(printf "%${empty}s" | tr ' ' '░')
+    local bar_filled=$(printf "%${filled}s" | tr ' ' '+')
+    local bar_empty=$(printf "%${empty}s" | tr ' ' ' ')
     
     # \r vraća kursor na početak linije, \033[K briše ostatak linije
     printf "\r\033[K[%s%s] %3d%% | %s" "$bar_filled" "$bar_empty" "$percent" "$message"

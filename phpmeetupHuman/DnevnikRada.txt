@@ -11,6 +11,15 @@ curl -X POST https://127.0.0.1:8000/api/shipping/quotes \
           "serviceType": "regular"
          }'
 
+curl -X POST https://phpmeetupos.space/api/shipping/quotes \
+     -H "Content-Type: application/json" \
+     -d '{
+          "postalCode": "10000",
+          "weight": 2.4,
+          "dimensions": { "length": 30, "width": 20, "height": 15 },
+          "serviceType": "regular"
+         }'
+
 Rad: 2,3 sata ovo do sada (repository, fixturer,...)
 
 30 minuta postavljanje rate limiter-a i testova za njega.
