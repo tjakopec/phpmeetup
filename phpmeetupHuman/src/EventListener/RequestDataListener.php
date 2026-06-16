@@ -40,6 +40,11 @@ class RequestDataListener implements EventSubscriberInterface
         /** @var array<string, mixed> $content */
         $content = json_decode($request->getContent(), true) ?? [];
 
+        $optimised = isset($content['optimised']) && is_bool($content['optimised']) ? (bool) $content['optimised'] : false;
+        
+        if(!$optimised) {
+            return;
+        }
         $postalCode = isset($content['postalCode']) && is_scalar($content['postalCode']) ? (string) $content['postalCode'] : '';
         $serviceTypeStr = isset($content['serviceType']) && is_scalar($content['serviceType']) ? (string) $content['serviceType'] : 'regular';
         $baseWeight = 0.5;

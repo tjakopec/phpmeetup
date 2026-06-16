@@ -24,11 +24,14 @@ button { background: #007bff; color: white; border: none; cursor: pointer; }
             <input type="number" id="length" placeholder="Dužina (cm)" required>
             <input type="number" id="width" placeholder="Širina (cm)" required>
             <input type="number" id="height" placeholder="Visina (cm)" required>
+            <input type="checkbox" id="optimisedCheck">
         </div>
         <select id="serviceType">
             <option value="regular">Regular</option>
             <option value="express">Express</option>
         </select>
+        
+            
         <button type="submit">Izračunaj cijenu</button>
     </form>
     <div id="result" class="hidden"></div>
@@ -41,6 +44,7 @@ document.getElementById('shippingForm').addEventListener('submit', async (e) => 
     e.preventDefault();
 
     const payload = {
+        optimised: document.getElementById('optimisedCheck').checked,
         postalCode: document.getElementById('postalCode').value,
         weight: parseFloat(document.getElementById('weight').value),
         dimensions: {
@@ -54,6 +58,7 @@ document.getElementById('shippingForm').addEventListener('submit', async (e) => 
     try {
         const baseUrl = window.location.origin; 
         const apiUrl = `${baseUrl}/api/shipping/quotes`;
+        const startTime = performance.now();
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 
@@ -64,11 +69,13 @@ document.getElementById('shippingForm').addEventListener('submit', async (e) => 
         });
         
         const data = await response.json();
-        
+        const endTime = performance.now();
+        const duration = (endTime - startTime).toFixed(2);
         const resDiv = document.getElementById('result');
         resDiv.classList.remove('hidden');
         const formatHR = (num) => num.toLocaleString('hr-HR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         resDiv.innerHTML = `
+            Zahtjev trajao: ${duration} ms
             <h3>Ukupno: ${formatHR(data.price)} ${data.currency}</h3>
             <p>Dostava: ${data.estimatedDeliveryDays} dan${data.estimatedDeliveryDays>1 ? 'a' : ''}</p>
             <hr>
