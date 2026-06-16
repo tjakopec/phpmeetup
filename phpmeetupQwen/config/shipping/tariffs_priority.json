@@ -1,0 +1,12 @@
+{
+    "service_type": "priority",
+    "currency": "EUR",
+    "weight_tiers": [
+        { "min_kg": 0.0, "max_kg": 1.0, "base_price": 5.25 },
+        { "min_kg": 1.0, "max_kg": 2.0, "base_price": 6.30 },
+        { "min_kg": 2.0, "max_kg": 5.0, "base_price": 8.70 },
+        { "min_kg": 5.0, "max_kg": 10.0, "base_price": 12.75 },
+        { "min_kg": 10.0, "max_kg": 20.0, "base_price": 21.00 },
+        { "min_kg": 20.0, "max_kg": 30.0, "base_price": 33.00 }
+    ]
+}

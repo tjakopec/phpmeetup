@@ -1,0 +1,725 @@
+# Shipping Price Calculator — API Platform / Symfony Architecture Plan
+
+## 1. Project Overview
+
+A stateless REST API for calculating shipping prices for parcels within Croatia, built on Symfony + API Platform. The service accepts parcel details (destination ZIP, weight, dimensions, service tier) and returns a quoted price with a detailed breakdown. All pricing configuration (zones, tariffs, divisors, multipliers) is data-driven and externalized from PHP code.
+
+---
+
+## 2. Technology Stack
+
+| Layer | Technology |
+|-------|------------|
+| Framework | Symfony 7.x |
+| API Layer | API Platform 4.x |
+| PHP | 8.3+ |
+| Testing | PHPUnit + ApiTestAssertions |
+| Static Analysis | PHPStan (Level 6+) |
+| Code Style | PHP-CS-Fixer (PSR-12) |
+| Serialization | Symfony Serializer |
+| Validation | Symfony Validator |
+| Config Format | YAML + JSON for tariff/zone data |
+| Documentation | API Platform OpenAPI auto-generation |
+
+---
+
+## 3. Directory Structure
+
+```
+phpmeetup-shipping/
+├── config/
+│   ├── packages/
+│   │   ├── api_platform.yaml
+│   │   ├── validator.yaml
+│   │   └── serialization.yaml
+│   ├── routes.yaml
+│   └── shipping/
+│       ├── zones.yaml              # Postal code → zone mapping
+│       ├── tariffs_regular.json    # Regular service tariff tables
+│       ├── tariffs_priority.json   # Priority service tariff tables
+│       ├── limits.json             # Per-service hard limits
+│       └── settings.json           # Global settings (divisor, priority multiplier base)
+├── public/
+│   └── index.php
+├── src/
+│   ├── Controller/                 # No controllers needed — API Platform handles routing
+│   ├── DTO/
+│   │   ├── ShippingQuoteRequest.php    # Input DTO
+│   │   └── ShippingQuoteResponse.php   # Output DTO
+│   ├── Enum/
+│   │   └── ServiceType.php             # regular | priority enum
+│   ├── Exception/
+│   │   ├── OversizedParcelException.php
+│   │   └── UnknownPostalCodeException.php
+│   ├── Parser/
+│   │   ├── ZoneFileParserInterface.php
+│   │   ├── TariffFileParserInterface.php
+│   │   └── JsonConfigParser.php
+│   ├── Repository/
+│   │   ├── ZoneRepository.php
+│   │   └── TariffRepository.php
+│   ├── Service/
+│   │   ├── ShippingPriceCalculatorInterface.php
+│   │   └── ShippingPriceCalculator.php
+│   └── Serializer/
+│       └── ShippingQuoteNormalizer.php     # Custom normalizer for output DTO
+├── tests/
+│   ├── Calculator/
+│   │   ├── ShippingPriceCalculatorTest.php
+│   │   ├── VolumetricWeightTest.php
+│   │   ├── WeightTierBoundaryTest.php
+│   │   └── ZoneResolutionTest.php
+│   ├── Endpoint/
+│   │   ├── ShippingQuoteEndpointTest.php
+│   │   └── ShippingQuoteValidationTest.php
+│   └── Fixture/
+│       └── TariffDataSeeder.php
+├── phpunit.xml.dist
+├── composer.json
+├── phpstan.neon
+├── .php-cs-fixer.php
+├── README.md
+└── symfony.lock
+```
+
+---
+
+## 4. Data Models (DTOs)
+
+### 4.1 Input DTO: `ShippingQuoteRequest`
+
+```php
+// src/DTO/ShippingQuoteRequest.php
+namespace App\DTO;
+
+use Symfony\Component\Validator\Constraints as Assert;
+
+class ShippingQuoteRequest
+{
+    #[Assert\NotBlank]
+    #[Assert\Regex(pattern='/^\d{5}$/')]
+    public string $postalCode;
+
+    #[Assert\NotBlank]
+    #[Assert\Positive(message: 'Weight must be positive.')]
+    public float $weight;
+
+    #[Assert\Valid]
+    public ?ParcelDimensions $dimensions = null;
+
+    #[Assert\NotBlank]
+    #[Assert\Enum(values: ['regular', 'priority'])]
+    public string $serviceType;
+}
+```
+
+```php
+// src/DTO/ParcelDimensions.php
+namespace App\DTO;
+
+use Symfony\Component\Validator\Constraints as Assert;
+
+class ParcelDimensions
+{
+    #[Assert\NotBlank]
+    #[Assert\Positive(message: 'Length must be positive.')]
+    public float $length;
+
+    #[Assert\NotBlank]
+    #[Assert\Positive(message: 'Width must be positive.')]
+    public float $width;
+
+    #[Assert\NotBlank]
+    #[Assert\Positive(message: 'Height must be positive.')]
+    public float $height;
+}
+```
+
+### 4.2 Output DTO: `ShippingQuoteResponse`
+
+```php
+// src/DTO/ShippingQuoteResponse.php
+namespace App\DTO;
+
+use Symfony\Component\Serializer\Annotation\Context;
+use Symfony\Component\Serializer\Annotation\Type;
+
+class ShippingQuoteResponse
+{
+    #[Type('float')]
+    public float $price;
+
+    #[Type('string')]
+    public string $currency = 'EUR';
+
+    #[Type('string')]
+    public string $serviceType;
+
+    #[Type('int')]
+    public int $estimatedDeliveryDays;
+
+    #[Type('array')]
+    public PriceBreakdown $breakdown;
+}
+```
+
+### 4.3 Supporting Classes
+
+```php
+// src/DTO/PriceBreakdown.php
+namespace App\DTO;
+
+final class PriceBreakdown
+{
+    public function __construct(
+        public float $base,
+        public float $weightSurcharge,
+        public float $dimensionalSurcharge,
+        public float $zoneSurcharge,
+        public float $priorityMultiplier,
+    ) {}
+}
+```
+
+```php
+// src/Enum/ServiceType.php
+namespace App\Enum;
+
+enum ServiceType: string
+{
+    case REGULAR = 'regular';
+    case PRIORITY = 'priority';
+}
+```
+
+---
+
+## 5. Configuration Files (Data-Driven Pricing)
+
+### 5.1 Zone Mapping: `config/shipping/zones.yaml`
+
+```yaml
+# Croatian shipping zones based on geographic region
+zones:
+    mainland:
+        id: 'mainland'
+        label: 'Mainland'
+        surcharge: 0.00
+        delivery_days_base: 2
+        postal_codes:
+            - '10000'-'10999'   # Zagreb region
+            - '20000'-'29999'   # Slavonia
+            - '31000'-'38999'   # Dalmatian inland
+            - '40000'-'49999'   # Lika/Gorski Kotar
+            - '51000'-'52999'   # Istria
+
+    island:
+        id: 'island'
+        label: 'Island'
+        surcharge: 3.50
+        delivery_days_base: 3
+        postal_codes:
+            - '23240'            # Pag
+            - '52460'            # Krk
+            - '51230'-'51299'   # Hvar, Brač, Korčula area
+            - '52570'            # Vis
+            - '20230'            # Lastovo
+
+    remote:
+        id: 'remote'
+        label: 'Remote/Mountain'
+        surcharge: 5.00
+        delivery_days_base: 4
+        postal_codes: []
+        # Populated from complete Hrvatska Pošta CSV export
+```
+
+### 5.2 Tariff Tables: `config/shipping/tariffs_regular.json`
+
+```json
+{
+    "service_type": "regular",
+    "currency": "EUR",
+    "weight_tiers": [
+        { "min_kg": 0.0, "max_kg": 1.0, "base_price": 3.50 },
+        { "min_kg": 1.0, "max_kg": 2.0, "base_price": 4.20 },
+        { "min_kg": 2.0, "max_kg": 5.0, "base_price": 5.80 },
+        { "min_kg": 5.0, "max_kg": 10.0, "base_price": 8.50 },
+        { "min_kg": 10.0, "max_kg": 20.0, "base_price": 14.00 },
+        { "min_kg": 20.0, "max_kg": 30.0, "base_price": 22.00 }
+    ]
+}
+```
+
+### 5.3 Limits: `config/shipping/limits.json`
+
+```json
+{
+    "regular": {
+        "max_weight_kg": 30,
+        "max_longest_side_cm": 200,
+        "max_dimensions_sum_cm": 300
+    },
+    "priority": {
+        "max_weight_kg": 30,
+        "max_longest_side_cm": 150,
+        "max_dimensions_sum_cm": 250
+    }
+}
+```
+
+### 5.4 Settings: `config/shipping/settings.json`
+
+```json
+{
+    "volumetric_divisor": 5000,
+    "default_priority_multiplier": 1.5,
+    "currency": "EUR",
+    "vat_inclusive": false
+}
+```
+
+---
+
+## 6. Service Architecture
+
+### 6.1 Calculator Interface
+
+```php
+// src/Service/ShippingPriceCalculatorInterface.php
+namespace App\Service;
+
+use App\DTO\ShippingQuoteRequest;
+use App\DTO\ShippingQuoteResponse;
+
+interface ShippingPriceCalculatorInterface
+{
+    public function calculate(ShippingQuoteRequest $request): ShippingQuoteResponse;
+}
+```
+
+### 6.2 Calculator Implementation Logic (Pseudocode)
+
+```
+calculate(request):
+    1. Validate request against limits (max weight, dimensions) → throw if exceeded
+    2. Resolve zone from postalCode → get surcharge + delivery_days_base
+    3. Load tariff table for serviceType
+    4. Compute volumetricWeight = (L × W × H) / volumetric_divisor
+    5. chargeableWeight = max(actualWeight, volumetricWeight)
+    6. Find weight tier: find first tier where min ≤ chargeableWeight ≤ max
+    7. basePrice = tier.base_price
+    8. price = (basePrice + zoneSurcharge) * priorityMultiplier
+       where priorityMultiplier = (request.priority ? settings.default_priority_multiplier : 1.0)
+    9. estimatedDeliveryDays = zone.delivery_days_base - (request.priority ? 1 : 0)
+    10. Return ShippingQuoteResponse with breakdown
+```
+
+### 6.3 Pricing Breakdown Calculation Detail
+
+| Component | Formula |
+|-----------|---------|
+| `base` | Tariff tier base_price for chargeable weight bracket |
+| `weightSurcharge` | (tierPrice - previousTierBase) if in a higher bracket, else 0. Alternatively: `(chargeableWeight - baseWeightThreshold) * marginalRate` |
+| `dimensionalSurcharge` | max(0, volumetricWeight - actualWeight) × perKgDimensionalRate (default 0.00 unless configured) |
+| `zoneSurcharge` | Zone-specific flat surcharge from zones.yaml |
+| `priorityMultiplier` | 1.0 for regular, settings.default_priority_multiplier for priority |
+
+### 6.4 Repository Layer (Config Loading)
+
+```php
+// src/Repository/ZoneRepository.php
+class ZoneRepository
+{
+    public function __construct(private ZoneFileParserInterface $parser) {}
+
+    public function resolveZone(string $postalCode): ZoneData
+    {
+        // Load zones.yaml at runtime or cache in OPcache-friendly array
+        // Iterate zones, check if postalCode falls within any range
+        // Return matched ZoneData or null
+    }
+}
+
+// src/Repository/TariffRepository.php
+class TariffRepository
+{
+    public function __construct(private TariffFileParserInterface $parser) {}
+
+    public function loadTariffs(ServiceType $serviceType): TariffTable
+    {
+        // Load tariffs_{serviceType}.json
+        // Return structured TariffTable with ordered weight_tiers
+    }
+}
+```
+
+### 6.5 Configuration Parsers
+
+```php
+// src/Parser/ZoneFileParserInterface.php
+interface ZoneFileParserInterface
+{
+    public function parse(): array;  // Returns ['zoneId' => ['postal_codes' => [...]]]
+}
+
+// src/Parser/TariffFileParserInterface.php
+interface TariffFileParserInterface
+{
+    public function parse(string $serviceType): TariffTable;
+}
+
+// Concrete: JsonConfigParser implements both (can use class attributes or interfaces)
+class JsonConfigParser implements ZoneFileParserInterface, TariffFileParserInterface
+{
+    // Uses file_get_contents + json_decode / yaml_parse
+    // Caches parsed data in memory for the request lifecycle
+}
+```
+
+---
+
+## 7. API Endpoint Integration (API Platform)
+
+### 7.1 Resource Registration (`src/DTO/ShippingQuoteRequest.php`)
+
+The input DTO is registered as an API Platform resource:
+
+```php
+// src/DTO/ShippingQuoteRequest.php (with API Platform attributes)
+namespace App\DTO;
+
+use ApiPlatform\Metadata\Post;
+use Symfony\Component\Validator\Constraints as Assert;
+
+#[Post(
+    uriTemplate: '/shipping/quotes',
+    output: 'App\DTO\ShippingQuoteResponse',
+    statusCode: 200,
+    openapi: new OpenApiOperation(
+        summary: 'Calculate shipping price for a parcel',
+        parameters: [...]
+    )
+)]
+#[ApiFilter(SearchFilter::class, ['postalCode' => 'exact'])] // optional
+class ShippingQuoteRequest
+{
+    // ... fields as defined in section 4.1
+}
+```
+
+### 7.2 Processor (No DB Write)
+
+API Platform's processor chain is configured to delegate to the calculator:
+
+```php
+// src/Processor/ShippingQuoteProcessor.php
+namespace App\Processor;
+
+use ApiPlatform\Metadata\IriConverterInterface;
+use ApiPlatform\State\ProcessorInterface;
+use App\DTO\ShippingQuoteRequest;
+use App\DTO\ShippingQuoteResponse;
+use App\Service\ShippingPriceCalculatorInterface;
+
+class ShippingQuoteProcessor implements ProcessorInterface
+{
+    public function __construct(private ShippingPriceCalculatorInterface $calculator) {}
+
+    public function process(mixed $data): ShippingQuoteResponse
+    {
+        assert($data instanceof ShippingQuoteRequest);
+        return $this->calculator->calculate($data);
+    }
+}
+```
+
+### 7.3 Normalizer (Output DTO → JSON)
+
+```php
+// src/Serializer/ShippingQuoteNormalizer.php
+class ShippingQuoteNormalizer implements NormalizerInterface
+{
+    public function normalize(mixed $object, ?string $format = null, array $context = []): array
+    {
+        assert($object instanceof ShippingQuoteResponse);
+        return [
+            'price' => $object->price,
+            'currency' => $object->currency,
+            'serviceType' => $object->serviceType,
+            'estimatedDeliveryDays' => $object->estimatedDeliveryDays,
+            'breakdown' => [
+                'base' => $object->breakdown->base,
+                'weightSurcharge' => $object->breakdown->weightSurcharge,
+                'dimensionalSurcharge' => $object->breakdown->dimensionalSurcharge,
+                'zoneSurcharge' => $object->breakdown->zoneSurcharge,
+                'priorityMultiplier' => $object->breakdown->priorityMultiplier,
+            ],
+        ];
+    }
+
+    public function supportsNormalization(mixed $data, ?string $format = null): bool
+    {
+        return $data instanceof ShippingQuoteResponse;
+    }
+}
+```
+
+---
+
+## 8. Validation Strategy
+
+### 8.1 Input Validation (Symfony Validator → 422 via API Platform)
+
+| Field | Constraint | Error on |
+|-------|-----------|----------|
+| `postalCode` | NotBlank + 5-digit regex | Missing or wrong format |
+| `weight` | Positive (>0) | ≤ 0 or null |
+| `dimensions.length` | Positive (>0) | ≤ 0 or null |
+| `dimensions.width` | Positive (>0) | ≤ 0 or null |
+| `dimensions.height` | Positive (>0) | ≤ 0 or null |
+| `serviceType` | Enum['regular','priority'] | Other value |
+
+### 8.2 Business Validation (Calculator → 422)
+
+| Rule | Exception / Response |
+|------|---------------------|
+| Postal code not in any zone | `UnknownPostalCodeException` → 422 with "Unknown postal code" |
+| Weight exceeds max for service type | `OversizedParcelException` → 422 with "Parcel exceeds maximum weight" |
+| Longest side exceeds limit | `OversizedParcelException` → 422 |
+| Sum of dimensions exceeds limit | `OversizedParcelException` → 422 |
+
+Validation order in calculator: validate dimensions limits → validate weight limits → proceed with calculation.
+
+### 8.3 RFC 7807 Problem Detail Response (Example)
+
+```json
+{
+    "@type": "Problem",
+    "title": "Unprocessable Entity",
+    "status": 422,
+    "detail": "postalCode: This postal code is not recognized by Hrvatska Pošta.",
+    "violations": [
+        "postalCode"
+    ]
+}
+```
+
+---
+
+## 9. Test Strategy
+
+### 9.1 Unit Tests (Calculator)
+
+| Test Class | What It Covers |
+|------------|---------------|
+| `ShippingPriceCalculatorTest` | Happy path: regular + priority, full integration of weight tier + zone + multiplier |
+| `VolumetricWeightTest` | Volumetric weight calculation for various dimension/weight combos; confirms chargeableWeight = max(actual, volumetric) |
+| `WeightTierBoundaryTest` | Edge cases: exactly at tier boundaries (0.999→1.0kg, 1.001→next tier), minimum weights, maximum weights |
+| `ZoneResolutionTest` | All zone types resolved correctly; unknown postal code returns null → 422 |
+| `PriorityMultiplierTest` | Price = regularPrice × multiplier (default 1.5); delivery days reduced by 1 |
+| `OversizedParcelTest` | Rejects parcels exceeding limits for both service types |
+
+### 9.2 Functional Tests (API Endpoint)
+
+| Test | Method | Expected |
+|------|--------|----------|
+| Happy path — regular mainland | POST /shipping/quotes with valid payload | 200, correct price |
+| Happy path — priority island | POST /shipping/quotes with priority + island ZIP | 200, surcharge + multiplier applied |
+| Invalid postal code format | POST with "123" | 422, validation error |
+| Unknown postal code | POST with "99999" | 422, unknown zone |
+| Oversized parcel | POST with dimensions exceeding limits | 422, oversized error |
+| Malformed JSON payload | POST with invalid JSON | 400, bad request |
+| Missing required field | POST without "weight" | 422, missing field |
+| Negative weight | POST with weight: -1 | 422, positive constraint |
+| Both service types | POST with regular + priority | Both return valid responses |
+
+### 9.3 Test Data Fixtures
+
+```php
+// tests/Fixture/TariffDataSeeder.php
+class TariffDataSeeder
+{
+    // Returns array of test payloads covering:
+    // - All zones (mainland, island, remote)
+    // - All weight tiers
+    // - Boundary values
+    // - Both service types
+}
+```
+
+---
+
+## 10. OpenAPI/Swagger Documentation
+
+API Platform auto-generates OpenAPI 3.0 specs at `/api/docs.json`. The endpoint is documented with:
+
+- **Path**: `POST /api/shipping/quotes`
+- **Request body schema**: ShippingQuoteRequest DTO with all constraints
+- **Response 200**: ShippingQuoteResponse schema
+- **Response 422**: Problem detail with violations array
+- **Response 400**: Bad request (malformed JSON)
+
+The `#[OpenApiOperation]` attribute on the input DTO configures summary, description, and example values.
+
+---
+
+## 11. Configuration Knobs (README Section)
+
+All configuration is externalized to `config/shipping/`:
+
+| Knob | Config File | Description |
+|------|-------------|-------------|
+| Volumetric divisor | `settings.json` → `volumetric_divisor` | Divides L×W×H to get volumetric weight (5000 or 6000) |
+| Zone definitions | `zones.yaml` | Postal code ranges mapped to zones with surcharge and base delivery days |
+| Tariff tables | `tariffs_{serviceType}.json` | Ordered weight brackets with base prices |
+| Priority multiplier | `settings.json` → `default_priority_multiplier` | Multiplier applied to price for priority service (e.g., 1.5) |
+| Service limits | `limits.json` | Max weight, max longest side, max dimension sum per service type |
+| Currency | `settings.json` → `currency` | Default EUR; change if serving non-Euro zones |
+| VAT flag | `settings.json` → `vat_inclusive` | Whether displayed prices include VAT |
+
+**To update tariffs**: Edit the JSON files and restart the PHP worker (or rely on file watcher in dev mode). No code deploy needed.
+
+---
+
+## 12. Implementation Steps
+
+### Phase 1: Project Scaffold
+1. `composer create symfony/skeleton phpmeetup-shipping`
+2. `composer require api-platform symfony/validator symfony/serializer phpstan/phpstan`
+3. Configure API Platform output DTO → processor pipeline
+4. Generate project structure
+
+### Phase 3: Configuration Files
+5. Create `config/shipping/zones.yaml` with Croatian postal code zones
+6. Create `config/shipping/tariffs_regular.json` and `tariffs_priority.json`
+7. Create `config/shipping/limits.json` and `settings.json`
+8. Document import process for Hrvatska Pošta postal code dataset
+
+### Phase 4: DTOs & Enum
+9. Implement `ShippingQuoteRequest` with validation constraints
+10. Implement `ShippingQuoteResponse` + `PriceBreakdown`
+11. Implement `ServiceType` enum
+12. Implement `ParcelDimensions` value object
+
+### Phase 5: Service Layer
+13. Implement `ShippingPriceCalculatorInterface`
+14. Implement `ShippingPriceCalculator` with all business logic
+15. Implement `ZoneRepository` and `TariffRepository` (config loaders)
+16. Implement config parsers (`JsonConfigParser`)
+
+### Phase 6: API Integration
+17. Wire API Platform resource (`#[Post]` on DTO)
+18. Implement `ShippingQuoteProcessor`
+19. Implement `ShippingQuoteNormalizer`
+20. Configure OpenAPI documentation annotations
+
+### Phase 7: Exception Handling
+21. Create `OversizedParcelException` and `UnknownPostalCodeException`
+22. Wire exception-to-HTTP-status mapping for RFC 7807 responses
+
+### Phase 8: Testing
+23. Write unit tests for calculator (weight tiers, volumetric weight, zones, boundaries)
+24. Write functional API tests (happy path, validation, oversized, malformed)
+25. Configure phpunit.xml.dist
+
+### Phase 9: Quality Gates
+26. Run PHPStan at configured level — fix all errors
+27. Run PHP-CS-Fixer — auto-format
+28. Verify OpenAPI docs at `/api/docs.json`
+
+### Phase 10: Documentation & Deployment
+29. Write README.md with endpoint contract, example requests/responses, config knobs
+30. Deploy to staging environment
+31. Smoke test: one quote per zone × both service types (minimum 6 requests)
+
+---
+
+## 13. Example API Requests
+
+### Request — Regular Shipping (Mainland)
+
+```bash
+curl -X POST https://api.example.com/shipping/quotes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "postalCode": "10000",
+    "weight": 2.4,
+    "dimensions": { "length": 30, "width": 20, "height": 15 },
+    "serviceType": "regular"
+  }'
+```
+
+### Request — Priority Shipping (Island)
+
+```bash
+curl -X POST https://api.example.com/shipping/quotes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "postalCode": "23240",
+    "weight": 1.0,
+    "dimensions": { "length": 40, "width": 30, "height": 20 },
+    "serviceType": "priority"
+  }'
+```
+
+### Expected Response — Regular (Mainland)
+
+```json
+{
+  "price": 5.80,
+  "currency": "EUR",
+  "serviceType": "regular",
+  "estimatedDeliveryDays": 2,
+  "breakdown": {
+    "base": 5.80,
+    "weightSurcharge": 0.00,
+    "dimensionalSurcharge": 0.00,
+    "zoneSurcharge": 0.00,
+    "priorityMultiplier": 1.0
+  }
+}
+```
+
+### Expected Response — Priority (Island)
+
+```json
+{
+  "price": 13.05,
+  "currency": "EUR",
+  "serviceType": "priority",
+  "estimatedDeliveryDays": 2,
+  "breakdown": {
+    "base": 4.20,
+    "weightSurcharge": 0.00,
+    "dimensionalSurcharge": 0.67,
+    "zoneSurcharge": 3.50,
+    "priorityMultiplier": 1.5
+  }
+}
+```
+
+---
+
+## 14. Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Config storage | YAML + JSON files (not DB) | Stateless calculator; no write needed; simpler deployment |
+| No Doctrine entities | Pure DTOs | Requirement: calculation is stateless, no persistence |
+| Chargeable weight = max(actual, volumetric) | Industry standard | Matches carrier practices (DHL, FedEx use similar) |
+| Tiered tariffs (not per-KG) | Ordered brackets | Matches real carrier pricing; non-linear |
+| Zone mapping externalized | YAML config | Supports mainland/island/remote without code changes |
+| Interface-based calculator | `ShippingPriceCalculatorInterface` | Swap implementation later (e.g., real carrier API) |
+| RFC 7807 errors | API Platform default | Standard problem details format; consumed by any client |
+| Currency EUR | Hardcoded default | Croatia adopted euro in 2023; configurable if needed |
+
+---
+
+## 15. Future Extensibility
+
+- **Carrier rate integration**: Replace `ShippingPriceCalculator` implementation with a `CarrierRateCalculator` that calls external APIs while keeping the same interface and endpoint contract.
+- **Admin zone management**: Swap file-based zone config to Doctrine-backed `Zone` entity with admin CRUD endpoints if non-technical staff need to update zones.
+- **VAT handling**: Add `vatPercent` and `priceIncludingVat` fields to output DTO if VAT disclosure is required.
+- **Bulk quotes**: Add `POST /api/shipping/bulk-quotes` accepting an array of requests, reusing the same calculator service.
+- **Caching**: Add APCu/file cache to repositories for zone/tariff config to avoid file reads on every request in high-throughput scenarios.

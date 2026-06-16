@@ -1,0 +1,18 @@
+api_platform:
+    title: 'Shipping Price Calculator API'
+    description: 'REST API for calculating shipping prices for parcels within Croatia.'
+    version: '1.0.0'
+    formats:
+        json: ['application/json']
+    docs_formats:
+        json: ['application/json']
+        jsonopenapi: ['application/vnd.openapi+json']
+        html: ['text/html']
+    defaults:
+        stateless: true
+        cache_headers:
+            vary: ['Content-Type', 'Authorization', 'Origin']
+    exception_to_status:
+        App\Exception\UnresolvablePostalCodeException: 422
+        App\Exception\OversizedParcelException: 422
+        App\Exception\NoTariffFoundException: 500

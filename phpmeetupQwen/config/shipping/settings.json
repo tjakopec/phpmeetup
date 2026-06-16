@@ -1,0 +1,6 @@
+{
+    "volumetric_divisor": 5000,
+    "default_priority_multiplier": 1.5,
+    "currency": "EUR",
+    "vat_inclusive": false
+}

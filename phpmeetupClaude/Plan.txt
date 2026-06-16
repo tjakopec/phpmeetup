@@ -1,0 +1,541 @@
+=============================================================
+  SHIPPING PRICE CALCULATOR — IMPLEMENTATION PLAN
+  Target: API Platform / Symfony
+  Input for: Act Claude Sonnet 4.6
+=============================================================
+
+─────────────────────────────────────────────────────────────
+0. OVERVIEW
+─────────────────────────────────────────────────────────────
+Build a stateless REST endpoint (POST /api/shipping/quotes) on
+top of Symfony 7 + API Platform 3 that returns a shipping price
+quote for parcels within Croatia. No database writes on quote;
+reads only zone/tariff config. No carrier API integrations.
+
+─────────────────────────────────────────────────────────────
+1. PROJECT BOOTSTRAP
+─────────────────────────────────────────────────────────────
+1.1 Create new Symfony project
+    composer create-project symfony/skeleton:"7.*" .
+    composer require api
+
+1.2 Required packages
+    Production:
+      api-platform/core                  (API Platform 3)
+      doctrine/orm                       (for postal code / zone DB table)
+      doctrine/doctrine-bundle
+      doctrine/doctrine-migrations-bundle
+      symfony/validator
+      symfony/serializer
+      symfony/property-access
+
+    Dev / QA:
+      phpunit/phpunit
+      symfony/test-pack
+      api-platform/test                  (API Platform test client)
+      phpstan/phpstan
+      phpstan/extension-installer
+      phpstan/phpstan-symfony
+      phpstan/phpstan-doctrine
+      friendsofphp/php-cs-fixer
+      doctrine/doctrine-fixtures-bundle
+
+1.3 Environment
+    DATABASE_URL in .env (SQLite for local/CI, PostgreSQL for staging)
+    Configure API Platform metadata format: attributes (no XML/YAML)
+
+─────────────────────────────────────────────────────────────
+2. DATABASE / DOMAIN MODEL
+─────────────────────────────────────────────────────────────
+Two Doctrine entities (infrastructure/persistence only — not
+used as DTOs).
+
+2.1 Entity: PostalCode
+    Table: postal_codes
+    Fields:
+      id         INT PK AUTO_INCREMENT
+      code       VARCHAR(5) UNIQUE NOT NULL   — e.g. "10000"
+      city       VARCHAR(100) NOT NULL
+      zone_id    INT FK → shipping_zones.id
+
+    Index: UNIQUE(code)
+
+2.2 Entity: ShippingZone
+    Table: shipping_zones
+    Fields:
+      id           INT PK AUTO_INCREMENT
+      name         VARCHAR(50) NOT NULL       — "mainland", "island", "remote"
+      zone_surcharge NUMERIC(8,2) NOT NULL    — EUR surcharge per quote
+      description  TEXT NULL
+
+2.3 Entity: WeightTariff
+    Table: weight_tariffs
+    Fields:
+      id               INT PK AUTO_INCREMENT
+      zone_id          INT FK → shipping_zones.id
+      min_weight       NUMERIC(8,3) NOT NULL  — kg, inclusive lower bound
+      max_weight       NUMERIC(8,3) NULL      — kg, NULL = no upper limit
+      base_price       NUMERIC(8,2) NOT NULL  — EUR base for this bracket
+      weight_unit_price NUMERIC(8,4) NOT NULL — EUR per kg above min_weight
+
+    Rationale: tiered brackets, ordered by min_weight ASC.
+    No pricePerKg flat model.
+
+Migration: generate via doctrine:migrations:diff after entity creation.
+
+─────────────────────────────────────────────────────────────
+3. CONFIGURATION (config/packages/shipping.yaml)
+─────────────────────────────────────────────────────────────
+shipping:
+  volumetric_divisor: 5000           # cm³ → kg; 5000 or 6000
+  priority_multiplier: 1.5           # applied to final price
+  priority_delivery_days_reduction: 1
+  regular_delivery_days_base: 3
+  priority_delivery_days_base: 2
+  max_weight:
+    regular: 30                      # kg hard limit
+    priority: 30
+  max_dimension:                     # cm, longest side
+    regular: 150
+    priority: 150
+
+Expose via a typed Configuration class (ShippingConfiguration) bound
+in services.yaml so it can be injected.
+
+─────────────────────────────────────────────────────────────
+4. DTOs
+─────────────────────────────────────────────────────────────
+4.1 Input DTO: App\Dto\ShippingQuoteInput
+
+    Properties (all readonly, PHP 8.1+):
+      string  $postalCode      — @Assert\NotBlank, @Assert\Regex /^\d{5}$/
+      float   $weight          — @Assert\Positive
+      DimensionsInput $dimensions
+      string  $serviceType     — @Assert\Choice({"regular","priority"})
+
+    Nested:
+    App\Dto\DimensionsInput
+      float $length   — @Assert\Positive
+      float $width    — @Assert\Positive
+      float $height   — @Assert\Positive
+
+4.2 Output DTO: App\Dto\ShippingQuoteOutput
+
+    Properties:
+      float  $price
+      string $currency = 'EUR'
+      string $serviceType
+      int    $estimatedDeliveryDays
+      PriceBreakdown $breakdown
+
+    Nested:
+    App\Dto\PriceBreakdown
+      float $base
+      float $weightSurcharge
+      float $dimensionalSurcharge
+      float $zoneSurcharge
+      float $priorityMultiplier
+
+─────────────────────────────────────────────────────────────
+5. API PLATFORM RESOURCE / ENDPOINT
+─────────────────────────────────────────────────────────────
+Use API Platform's custom State Processor pattern (no entity-backed
+resource, fully stateless).
+
+5.1 ApiResource configuration on ShippingQuoteInput:
+    #[ApiResource(
+        operations: [
+            new Post(
+                uriTemplate: '/shipping/quotes',
+                input: ShippingQuoteInput::class,
+                output: ShippingQuoteOutput::class,
+                processor: ShippingQuoteProcessor::class,
+                openapiContext: [
+                    'summary' => 'Calculate shipping price',
+                    'tags'    => ['Shipping'],
+                ],
+            ),
+        ],
+        formats: ['json'],
+        normalizationContext: ['groups' => ['quote:read']],
+        denormalizationContext: ['groups' => ['quote:write']],
+    )]
+
+5.2 State Processor: App\State\ShippingQuoteProcessor
+    implements ProcessorInterface
+    - Receives validated ShippingQuoteInput
+    - Delegates to ShippingPriceCalculatorInterface
+    - Returns ShippingQuoteOutput
+
+─────────────────────────────────────────────────────────────
+6. DOMAIN SERVICE — CALCULATOR
+─────────────────────────────────────────────────────────────
+6.1 Interface: App\Service\ShippingPriceCalculatorInterface
+    Method:
+      calculate(ShippingQuoteInput $input): ShippingQuoteOutput
+
+    This is the future seam for swapping in real carrier rates.
+
+6.2 Implementation: App\Service\ShippingPriceCalculator
+
+    Constructor injects:
+      PostalCodeRepositoryInterface  $postalCodeRepo
+      WeightTariffRepositoryInterface $tariffRepo
+      ShippingConfiguration           $config
+
+    calculate() algorithm:
+      a) Resolve postal code → ShippingZone
+         - Query PostalCode entity by code
+         - If not found → throw UnresolvablePostalCodeException (→ 422)
+
+      b) Validate hard limits BEFORE pricing
+         - actualWeight > config.max_weight[serviceType] → throw OversizedParcelException (422)
+         - max(L, W, H) > config.max_dimension[serviceType] → throw OversizedParcelException (422)
+
+      c) Compute volumetric weight
+         volumetric = (length * width * height) / volumetric_divisor
+         chargeableWeight = max(actualWeight, volumetric)
+
+      d) Find tariff bracket
+         - Query WeightTariff for zone, ordered by min_weight ASC
+         - Select first bracket where chargeableWeight >= min_weight
+           AND (max_weight IS NULL OR chargeableWeight <= max_weight)
+         - If no bracket → throw NoTariffFoundException (500 / config error)
+
+      e) Compute base price from bracket
+         base = bracket.base_price
+               + (chargeableWeight - bracket.min_weight) * bracket.weight_unit_price
+
+      f) Weight surcharge
+         weightSurcharge = max(0, chargeableWeight - actualWeight)
+                           * bracket.weight_unit_price
+         (charge for the extra chargeable weight over actual)
+         Note: if chargeableWeight == actualWeight → weightSurcharge = 0.00
+               if chargeableWeight > actualWeight → weightSurcharge reflects
+               volumetric premium — adjust for clarity:
+         Simpler: weightSurcharge = (chargeableWeight > actualWeight)
+                    ? (chargeableWeight - actualWeight) * bracket.weight_unit_price
+                    : 0.00
+
+      g) Dimensional surcharge
+         dimensionalSurcharge = (chargeableWeight > actualWeight)
+                    ? (chargeableWeight - actualWeight) * bracket.weight_unit_price
+                    : 0.00
+         (If volumetric > actual, dimensional surcharge equals the difference cost)
+         Note: weightSurcharge and dimensionalSurcharge are mutually exclusive
+         in this model — only one can be non-zero at a time. The breakdown
+         surfaces them separately for clarity as requested.
+         REVISED model:
+           weightSurcharge     = 0.00 always (base already covers weight tiers)
+           dimensionalSurcharge = (volumetric > actual)
+                    ? (volumetric - actual) * bracket.weight_unit_price : 0.00
+
+      h) Zone surcharge
+         zoneSurcharge = zone.zone_surcharge
+
+      i) Priority multiplier
+         priorityMultiplier = (serviceType == 'priority')
+                    ? config.priority_multiplier : 1.0
+
+      j) Final price
+         subtotal = base + dimensionalSurcharge + zoneSurcharge
+         price    = round(subtotal * priorityMultiplier, 2)
+
+      k) Estimated delivery days
+         deliveryDays = (serviceType == 'priority')
+                    ? config.priority_delivery_days_base
+                    : config.regular_delivery_days_base
+
+      l) Build and return ShippingQuoteOutput
+
+─────────────────────────────────────────────────────────────
+7. REPOSITORY INTERFACES & IMPLEMENTATIONS
+─────────────────────────────────────────────────────────────
+7.1 App\Repository\PostalCodeRepositoryInterface
+      findByCode(string $code): ?PostalCode
+
+7.2 App\Repository\PostalCodeRepository  (extends ServiceEntityRepository)
+      Implements interface.
+
+7.3 App\Repository\WeightTariffRepositoryInterface
+      findBracketForZoneAndWeight(int $zoneId, float $weight): ?WeightTariff
+
+7.4 App\Repository\WeightTariffRepository
+      Implements interface using DQL/QueryBuilder with ORDER BY min_weight ASC.
+
+Register interfaces → implementations in services.yaml.
+
+─────────────────────────────────────────────────────────────
+8. EXCEPTION HANDLING / ERROR RESPONSES
+─────────────────────────────────────────────────────────────
+All errors must return RFC 7807 (API Platform default).
+
+8.1 Custom Exceptions (extend \RuntimeException):
+      UnresolvablePostalCodeException   → HTTP 422
+      OversizedParcelException          → HTTP 422
+      NoTariffFoundException            → HTTP 500
+
+8.2 Exception → HTTP mapping via API Platform's ExceptionToStatusCodeMapping
+    in config/packages/api_platform.yaml:
+      exception_to_status:
+        App\Exception\UnresolvablePostalCodeException: 422
+        App\Exception\OversizedParcelException: 422
+        App\Exception\NoTariffFoundException: 500
+
+8.3 Validation errors (constraint violations on DTO) are handled
+    automatically by API Platform → 422 Unprocessable Entity with
+    violations array. No custom code needed.
+
+─────────────────────────────────────────────────────────────
+9. DATA FIXTURES / SEEDING
+─────────────────────────────────────────────────────────────
+File: src/DataFixtures/ShippingFixtures.php
+      (implements FixtureInterface, ordered via getOrder())
+
+9.1 Zones fixture (ZoneFixtures):
+    - mainland  (zone_surcharge: 0.00, delivery_days: 3)
+    - island    (zone_surcharge: 2.00)
+    - remote    (zone_surcharge: 1.50)
+
+9.2 Weight tariffs fixture (WeightTariffFixtures):
+    Per zone, create brackets:
+    mainland:
+      0–1 kg    base 3.00  unit 0.00
+      1–2 kg    base 3.50  unit 0.50
+      2–5 kg    base 4.50  unit 0.30
+      5–10 kg   base 5.40  unit 0.20
+      10–30 kg  base 7.40  unit 0.15
+      30+ kg    base 10.40 unit 0.10
+    island / remote: same brackets but higher base_price (+1.00 each bracket)
+
+9.3 Postal codes fixture (PostalCodeFixtures):
+    Seed a representative subset of Croatian ZIP codes mapped to zones:
+    Mainland sample: 10000 (Zagreb), 21000 (Split), 51000 (Rijeka),
+                     31000 (Osijek), 20000 (Dubrovnik mainland)
+    Island sample:   21450 (Hvar), 51511 (Krk), 23250 (Pag),
+                     20260 (Korčula), 20290 (Lastovo), 21480 (Vis)
+    Remote/mountain: 53220 (Otočac), 47250 (Duga Resa area),
+                     44330 (Novska/mountain area)
+
+    For production: import full Hrvatska Pošta dataset via a separate
+    console command or data import script.
+
+9.4 Seeding commands:
+    php bin/console doctrine:migrations:migrate --no-interaction
+    php bin/console doctrine:fixtures:load --no-interaction
+
+─────────────────────────────────────────────────────────────
+10. TESTS
+─────────────────────────────────────────────────────────────
+10.1 Unit Tests (tests/Unit/Service/ShippingPriceCalculatorTest.php)
+
+    Framework: PHPUnit with mocked repositories.
+
+    Test cases:
+      ✓ Regular quote, mainland, weight = 1 kg (first bracket)
+      ✓ Regular quote, mainland, weight exactly at bracket boundary (2 kg)
+      ✓ Regular quote, mainland, volumetric > actual (dimensional surcharge applied)
+      ✓ Regular quote, island zone (zone surcharge applied)
+      ✓ Priority quote applies multiplier, reduces delivery days
+      ✓ Weight at exactly max allowed (30 kg) succeeds
+      ✓ Weight above max throws OversizedParcelException
+      ✓ Longest dimension above max throws OversizedParcelException
+      ✓ Unknown postal code throws UnresolvablePostalCodeException
+      ✓ Volumetric equals actual → no dimensional surcharge
+      ✓ All weight bracket tiers (0-1, 1-2, 2-5, 5-10, 10-30, 30+)
+
+10.2 Functional / API Tests (tests/Api/ShippingQuoteTest.php)
+
+    Framework: API Platform test client (extends ApiTestCase).
+
+    Test cases:
+      ✓ POST /api/shipping/quotes — happy path regular, mainland ZIP
+      ✓ POST /api/shipping/quotes — happy path priority, mainland ZIP
+      ✓ POST /api/shipping/quotes — island ZIP (zone surcharge in breakdown)
+      ✓ POST /api/shipping/quotes — remote ZIP
+      ✓ POST /api/shipping/quotes — invalid ZIP (unknown) → 422 + violation
+      ✓ POST /api/shipping/quotes — negative weight → 422 + violation
+      ✓ POST /api/shipping/quotes — zero dimension → 422 + violation
+      ✓ POST /api/shipping/quotes — missing field (postalCode) → 422
+      ✓ POST /api/shipping/quotes — oversized parcel (weight > 30 kg) → 422
+      ✓ POST /api/shipping/quotes — oversized dimension → 422
+      ✓ POST /api/shipping/quotes — invalid serviceType → 422
+      ✓ POST /api/shipping/quotes — malformed JSON → 400
+      ✓ Response structure matches expected JSON schema (price, currency, breakdown)
+
+─────────────────────────────────────────────────────────────
+11. STATIC ANALYSIS & CODE STYLE
+─────────────────────────────────────────────────────────────
+11.1 phpstan.neon:
+    parameters:
+      level: 8
+      paths: [src, tests]
+    includes:
+      - vendor/phpstan/phpstan-symfony/extension.neon
+      - vendor/phpstan/phpstan-doctrine/extension.neon
+
+11.2 .php-cs-fixer.dist.php:
+    Rules: @Symfony + @PHP81Migration
+    Finder: src/, tests/
+
+11.3 Makefile targets (convenience):
+    make test        → php bin/phpunit
+    make stan        → vendor/bin/phpstan analyse
+    make cs          → vendor/bin/php-cs-fixer fix --dry-run
+    make cs-fix      → vendor/bin/php-cs-fixer fix
+    make fixtures    → php bin/console doctrine:fixtures:load --no-interaction
+
+─────────────────────────────────────────────────────────────
+12. FILE / DIRECTORY STRUCTURE
+─────────────────────────────────────────────────────────────
+src/
+├── Config/
+│   └── ShippingConfiguration.php          ← typed config VO
+├── DataFixtures/
+│   ├── ZoneFixtures.php
+│   ├── WeightTariffFixtures.php
+│   └── PostalCodeFixtures.php
+├── Dto/
+│   ├── DimensionsInput.php
+│   ├── ShippingQuoteInput.php
+│   ├── PriceBreakdown.php
+│   └── ShippingQuoteOutput.php
+├── Entity/
+│   ├── PostalCode.php
+│   ├── ShippingZone.php
+│   └── WeightTariff.php
+├── Exception/
+│   ├── UnresolvablePostalCodeException.php
+│   ├── OversizedParcelException.php
+│   └── NoTariffFoundException.php
+├── Repository/
+│   ├── PostalCodeRepositoryInterface.php
+│   ├── PostalCodeRepository.php
+│   ├── WeightTariffRepositoryInterface.php
+│   └── WeightTariffRepository.php
+├── Service/
+│   ├── ShippingPriceCalculatorInterface.php
+│   └── ShippingPriceCalculator.php
+└── State/
+    └── ShippingQuoteProcessor.php
+
+tests/
+├── Api/
+│   └── ShippingQuoteTest.php
+└── Unit/
+    └── Service/
+        └── ShippingPriceCalculatorTest.php
+
+config/
+├── packages/
+│   ├── api_platform.yaml
+│   └── shipping.yaml
+└── services.yaml
+
+migrations/
+    (auto-generated by doctrine:migrations:diff)
+
+─────────────────────────────────────────────────────────────
+13. README SECTION (to append to README.md)
+─────────────────────────────────────────────────────────────
+## Shipping Quote API
+
+### Endpoint Contract
+
+POST /api/shipping/quotes
+Content-Type: application/json
+
+Request:
+{
+  "postalCode": "10000",
+  "weight": 2.4,
+  "dimensions": { "length": 30, "width": 20, "height": 15 },
+  "serviceType": "regular"        // "regular" | "priority"
+}
+
+Response 200:
+{
+  "price": 5.49,
+  "currency": "EUR",
+  "serviceType": "regular",
+  "estimatedDeliveryDays": 3,
+  "breakdown": {
+    "base": 4.50,
+    "weightSurcharge": 0.00,
+    "dimensionalSurcharge": 0.00,
+    "zoneSurcharge": 0.00,
+    "priorityMultiplier": 1.0
+  }
+}
+
+Error responses: RFC 7807 JSON (API Platform default)
+  422 — validation failure, unknown ZIP, oversized parcel
+  400 — malformed payload
+
+### Configuration Knobs
+
+Edit config/packages/shipping.yaml:
+  volumetric_divisor          default 5000 (use 6000 for some carriers)
+  priority_multiplier         default 1.5
+  regular_delivery_days_base  default 3
+  priority_delivery_days_base default 2
+  max_weight.regular          default 30 kg
+  max_weight.priority         default 30 kg
+  max_dimension.regular       default 150 cm
+  max_dimension.priority      default 150 cm
+
+### Zone Definitions
+
+Zones (mainland / island / remote) and their surcharges are stored in
+the shipping_zones DB table. Edit via SQL or an admin panel.
+
+### Tariff Tables
+
+Weight brackets per zone are stored in weight_tariffs DB table.
+To reseed: php bin/console doctrine:fixtures:load --no-interaction
+For custom tariffs, edit src/DataFixtures/WeightTariffFixtures.php and
+re-run fixtures (or apply migrations with manual SQL).
+
+### Seeding Postal Codes
+
+A representative subset is seeded via PostalCodeFixtures.
+For the full Hrvatska Pošta dataset, run:
+  php bin/console app:import-postal-codes path/to/hp_zipcodes.csv
+(Console command not yet implemented; add as future enhancement.)
+
+─────────────────────────────────────────────────────────────
+14. IMPLEMENTATION ORDER (for Act mode)
+─────────────────────────────────────────────────────────────
+Step 1:  composer install & project bootstrap
+Step 2:  ShippingConfiguration typed config class + shipping.yaml
+Step 3:  Entities (ShippingZone, PostalCode, WeightTariff) + migration
+Step 4:  Repository interfaces + Doctrine implementations
+Step 5:  DTOs (input, output, nested)
+Step 6:  Custom exceptions
+Step 7:  ShippingPriceCalculatorInterface + ShippingPriceCalculator
+Step 8:  ShippingQuoteProcessor (State Processor)
+Step 9:  API Platform resource annotation on ShippingQuoteInput
+Step 10: api_platform.yaml exception mapping
+Step 11: services.yaml wiring (interfaces → implementations, config inject)
+Step 12: Data fixtures (zones, tariffs, postal codes)
+Step 13: Unit tests (ShippingPriceCalculatorTest)
+Step 14: API functional tests (ShippingQuoteTest)
+Step 15: phpstan.neon + .php-cs-fixer.dist.php + Makefile
+Step 16: README section
+Step 17: Run full test/stan/cs suite, fix any issues
+
+─────────────────────────────────────────────────────────────
+15. OPEN QUESTIONS / DECISIONS FOR STAKEHOLDER
+─────────────────────────────────────────────────────────────
+- VAT: are prices VAT-inclusive or exclusive? Surface in response if needed.
+- Full HP ZIP dataset: static CSV import vs. live DB sync vs. config YAML?
+- Rate limiting: apply Symfony RateLimiter on /api/shipping/quotes for
+  untrusted clients (threshold TBD).
+- Admin UI: if zones/tariffs need to be editable by business users,
+  plan for EasyAdmin or API Platform admin later.
+- Carrier name field: add to ShippingZone if multiple carriers per zone
+  are needed in the future.
+
+=============================================================
+END OF PLAN
+=============================================================

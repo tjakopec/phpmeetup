@@ -1,0 +1,58 @@
+
+
+Rad: 1,5 sati postavljenje (instalacija i osnovne postavke zadatka).
+
+curl -X POST https://127.0.0.1:8000/api/shipping/quotes \
+     -H "Content-Type: application/json" \
+     -d '{
+          "postalCode": "10000",
+          "weight": 2.4,
+          "dimensions": { "length": 30, "width": 20, "height": 15 },
+          "serviceType": "regular"
+         }'
+
+Rad: 2,3 sata ovo do sada (repository, fixturer,...)
+
+30 minuta postavljanje rate limiter-a i testova za njega.
+
+30 min Api Platform i DTO-ove, state processor, itd.
+
+
+2 sata rada oko arhitekture i logike
+
+
+3 sata detalja razno raznih - shvaćanje da imam previše upita na bazu, ostavio tako
+
+2 sata optimiziranje čitanja iz baze
+
+1 sat testovi
+
+1 sat sve po malo
+
+1 sat php stan
+
+php bin/console cache:clear
+
+php bin/console make:migration
+php bin/console doctrine:migrations:migrate
+php bin/console doctrine:fixtures:load --group=all
+
+symfony server:start 
+
+vendor/bin/phpstan analyse src --memory-limit=512M  
+vendor/bin/phpstan analyse tests --memory-limit=512M
+ 
+vendor/bin/php-cs-fixer fix --dry-run --diff
+../composer.phar format
+
+vendor/bin/phpunit tests/Service/PHPMeetup/PHPMeetupTask.php
+
+vendor/bin/phpunit tests/Service/ShippingCalculator
+
+
+php bin/console doctrine:database:create --env=test
+php bin/console doctrine:migrations:migrate --env=test -n
+php bin/console doctrine:fixtures:load --env=test --group=all -n
+vendor/bin/phpunit --filter ApiRateLimiterTest
+
+

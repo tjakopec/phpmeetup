@@ -1,0 +1,25 @@
+# see https://symfony.com/doc/current/reference/configuration/framework.html
+framework:
+    secret: '%env(APP_SECRET)%'
+
+    # Note that the session will be started ONLY if you read or write from it.
+    session: true
+
+    property_info:
+        enabled: true
+    serializer:
+        enabled: true
+        default_context:
+            # 65536 je numerička vrijednost za JSON_PRESERVE_ZERO_FRACTION
+            json_encode_options: 65536
+
+    #esi: true
+    #fragments: true
+
+when@test:
+    framework:
+        test: true
+        session:
+            storage_factory_id: session.storage.factory.mock_file
+        property_info:
+            enabled: true

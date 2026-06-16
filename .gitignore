@@ -1,0 +1,48 @@
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+###< OS SPECIFIČNO ###
+
+###> IDE & EDITORI ###
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+###< IDE & EDITORI ###
+
+###> COMPOSER ###
+vendor/
+*.phar
+###< COMPOSER ###
+
+###> SYMFONY ###
+# Cache, logovi i sesije
+var/
+
+# Lokalne varijable okruženja (tajne, lokalne baze)
+.env
+.env.local
+.env.*.local
+
+# Generirani public aseti (ako koristite Webpack Encore ili AssetMapper)
+public/bundles/
+public/build/
+public/uploads/
+
+# Symfony flex lock fajlovi (ako ne želite zaključavati verzije aseta po sub-folderima na ovaj način, iako se symfony.lock često commita. Ostavljamo ga van ignorea po defaultu, ali se može dodati)
+###< SYMFONY ###
+
+###> TESTIRANJE & KVALITETA KODA ###
+# PHPUnit
+bin/.phpunit/
+.phpunit.result.cache
+.phpunit.cache/
+coverage/
+
+# PHP CS Fixer & PHPStan
+.php-cs-fixer.cache
+.phpstan.cache/

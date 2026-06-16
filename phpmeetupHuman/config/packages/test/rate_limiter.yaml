@@ -1,0 +1,8 @@
+# config/packages/test/framework.yaml
+framework:
+    rate_limiter:
+        limiters:
+            api_limiter:
+                policy: 'token_bucket'
+                limit: 2
+                rate: { amount: 1, interval: '1 minute' }

@@ -1,0 +1,12 @@
+{
+    "service_type": "regular",
+    "currency": "EUR",
+    "weight_tiers": [
+        { "min_kg": 0.0, "max_kg": 1.0, "base_price": 3.50 },
+        { "min_kg": 1.0, "max_kg": 2.0, "base_price": 4.20 },
+        { "min_kg": 2.0, "max_kg": 5.0, "base_price": 5.80 },
+        { "min_kg": 5.0, "max_kg": 10.0, "base_price": 8.50 },
+        { "min_kg": 10.0, "max_kg": 20.0, "base_price": 14.00 },
+        { "min_kg": 20.0, "max_kg": 30.0, "base_price": 22.00 }
+    ]
+}

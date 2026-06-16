@@ -1,0 +1,11 @@
+shipping:
+  volumetric_divisor: 5000           # cm³ → kg; 5000 or 6000
+  priority_multiplier: 1.5           # applied to final price
+  regular_delivery_days_base: 3
+  priority_delivery_days_base: 2
+  max_weight:
+    regular: 30                      # kg hard limit
+    priority: 30
+  max_dimension:                     # cm, longest side
+    regular: 150
+    priority: 150

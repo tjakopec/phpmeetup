@@ -1,0 +1,18 @@
+framework:
+    cache:
+        # Unique name of your app: used to compute stable namespaces for cache keys.
+        #prefix_seed: your_vendor_name/app_name
+
+        # The "app" cache stores to the filesystem by default.
+        # The data in this cache should not be deleted between deploys.
+        # Use "phpdoctrine/cache" to use a Doctrine cache adapter.
+        app: cache.adapter.filesystem
+
+        # The "system" cache stores to the filesystem by default.
+        # The data in this cache should not be deleted between deploys.
+        system: cache.adapter.system
+
+        # "default_redis_provider" and "default_memcached_provider" are available
+        # when the corresponding PHP extension is installed.
+        #default_redis_provider: redis://localhost
+        #default_memcached_provider: memcached://localhost

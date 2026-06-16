@@ -1,0 +1,39 @@
+# Implementation Plan for Shipping Price Calculator
+
+## 1. Overview
+The goal is to implement a stateless shipping price calculation REST API endpoint (`POST /api/shipping/quotes`) using API Platform and Symfony. The endpoint will compute rates based on Croatian postal codes, dimensional weight, and service tiers (regular vs. priority), returning a detailed price breakdown without interacting with a database for writes.
+
+## 2. Key Changes & Architecture
+* **Data Transfer Objects (DTOs)**: Create dedicated `ShippingQuoteRequest` and `ShippingQuoteResponse` DTOs (along with nested objects like `Dimensions` and `PriceBreakdown`).
+* **API Resource**: Expose `ShippingQuoteRequest` as an API Platform `#[ApiResource]` limited to the `POST` method.
+* **State Processor**: Implement a custom `StateProcessor` to bridge the DTO and the domain service.
+* **Domain Service (`ShippingPriceCalculator`)**: Implement an interface and concrete class handling:
+  * Dimensional weight calculation (configurable divisor).
+  * Zone resolution via postal code.
+  * Tiered base price lookups based on chargeable weight (max of actual or volumetric).
+  * Application of surcharges (zone, weight, dimensional) and priority multipliers.
+* **Configuration**: Externalize zone definitions (postal code mappings), weight tiers, priority multipliers, and volumetric divisor via YAML or a lightweight configuration loader.
+* **Testing**: Comprehensive Unit tests for the calculator and Functional API tests for the endpoint.
+
+## 3. Implementation Steps
+1. **Initialize API Resources & DTOs**: Create `ShippingQuoteRequest` with Symfony Validation constraints (Asserts for positive numbers, valid Croatian postal codes regex, required fields, and enum for serviceType). Create the corresponding `ShippingQuoteResponse` and nested structures.
+2. **Define API Platform Endpoint**: Annotate the request DTO with `#[ApiResource(operations: [new Post(uriTemplate: '/shipping/quotes', processor: ShippingQuoteStateProcessor::class)])]` to automatically generate OpenAPI documentation and expose the route.
+3. **Configuration & Data Structures**: Create configuration files or services representing the Croatian postal code zones (mainland, islands, remote), weight tariffs (brackets rather than linear pricing), limits (max weight/dimensions per service type), and the volumetric divisor (e.g., 5000).
+4. **Implement Core Calculator Domain**: Build `ShippingPriceCalculatorInterface` and its default implementation. Add logic to calculate `volumetricWeight`, resolve the `zoneSurcharge`, find the correct `basePrice` by weight bracket, and compute the total and estimated delivery days.
+5. **Implement Custom State Processor**: Create `ShippingQuoteStateProcessor` that takes the validated `ShippingQuoteRequest`, passes it to the `ShippingPriceCalculator`, and maps the result to a `ShippingQuoteResponse` to be returned.
+6. **Implement Unit Tests**: Write PHPUnit tests targeting `ShippingPriceCalculator` focusing on volumetric logic, bracket limits, zone resolution, and edge cases (boundary weights).
+7. **Implement API/Functional Tests**: Write tests using `ApiTestCase` to cover the endpoint with happy paths and validation failures (invalid ZIP, oversized packages, etc.).
+8. **Finalize Documentation & Polish**: Configure PHP-CS-Fixer, ensure PHPStan/Psalm compliance, update `README.md` with examples and config parameters instructions.
+
+## 4. Technical Considerations
+* Use `max(actualWeight, volumetricWeight)` for chargeable weight.
+* Validation rules must be robust (reject parcels that exceed constraints with `422 Unprocessable Entity`).
+* Ensure correct Swagger/OpenAPI exposure by correctly type-hinting DTO properties.
+* Pricing math should use floats (or integers as cents for precision) and round correctly.
+* Use stateless operations entirely.
+
+## 5. Success Criteria
+* Clean architecture with business logic separated from API definitions.
+* Successful API tests ensuring accurate pricing outputs, breakdowns, and correct error codes.
+* No persistence logic.
+* High code quality according to static analysis tools.

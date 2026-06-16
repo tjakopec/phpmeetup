@@ -1,0 +1,38 @@
+# config/services.yaml
+# Services configuration for Symfony dependency injection
+
+services:
+    # Default service configuration
+    _defaults:
+        autowire: true
+        autoconfigure: true
+        public: false
+
+    # App namespace
+    App\:
+        resource: '../src/'
+        exclude:
+            - '../src/Dto/'
+            - '../src/Enums/'
+            - '../src/Exceptions/'
+
+    # Controllers (made public for routing)
+    App\Controller\ShippingQuoteController:
+        public: true
+        tags: ['controller.service_arguments']
+
+    # Repositories
+    App\Repositories\TariffRepository:
+        arguments:
+            $tariffsDirectory: '%kernel.project_dir%/config/shipping'
+
+    App\Repositories\ZoneRepository:
+        arguments:
+            $zonesFilePath: '%kernel.project_dir%/config/shipping/zones.yaml'
+
+    App\Repositories\SettingsRepository:
+        arguments:
+            $settingsFilePath: '%kernel.project_dir%/config/shipping/settings.json'
+
+    # Calculator
+    App\Calculator\ShippingCalculator: ~
