@@ -99,6 +99,7 @@ echo "⚙️ Kreiranje .env datoteke sa svježim podacima..."
 cat <<EOF > .env
 APP_ENV=dev
 APP_SECRET=${APP_SECRET}
+DEFAULT_URI=https://${DOMAIN}
 DATABASE_URL="mysql://${DB_USER}:${DB_PASS}@127.0.0.1:3306/${DB_NAME}?serverVersion=10.11.8-MariaDB&charset=utf8mb4"
 EOF
 
@@ -112,8 +113,7 @@ composer install --optimize-autoloader --no-interaction
 echo "🧹 Brisanje Symfony cache-a..."
 php bin/console cache:clear
 
-echo "🏗️ Generiranje i izvođenje migracija..."
-php bin/console make:migration --no-interaction || true
+echo "🏗️ Izvođenje migracija..."
 php bin/console doctrine:migrations:migrate --no-interaction
 
 echo "🌱 Učitavanje testnih podataka (Fixtures)..."
