@@ -9,31 +9,51 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo "🚀 Započinjem potpuno automatizirano postavljanje Ubuntu 24.04 servera..."
+echo "🚀 Započinjem postavljanje Ubuntu 24.04 servera..."
 
 # ==========================================
-# ISKLJUČIVANJE INTERAKCIJE
+# PRIKUPLJANJE PODATAKA OD KORISNIKA
+# ==========================================
+echo "Molimo unesite sljedeće podatke (pritisnite Enter za zadane vrijednosti):"
+echo "------------------------------------------------------------------------"
+
+read -p "REPO_URL [https://github.com/tjakopec/phpmeetup.git]: " input_repo_url
+REPO_URL=${input_repo_url:-https://github.com/tjakopec/phpmeetup.git}
+
+read -p "REPO_DIR [/var/www/phpmeetup]: " input_repo_dir
+REPO_DIR=${input_repo_dir:-/var/www/phpmeetup}
+
+read -p "DOMAIN [phpmeetupos.space]: " input_domain
+DOMAIN=${input_domain:-phpmeetupos.space}
+
+read -p "ADMIN_EMAIL [tjakopec@gmail.com]: " input_admin_email
+ADMIN_EMAIL=${input_admin_email:-tjakopec@gmail.com}
+
+echo "------------------------------------------------------------------------"
+echo "⏳ Pokrećem instalaciju sa sljedećim postavkama:"
+echo "Repozitorij: $REPO_URL"
+echo "Direktorij:  $REPO_DIR"
+echo "Domena:      $DOMAIN"
+echo "Email:       $ADMIN_EMAIL"
+echo "------------------------------------------------------------------------"
+
+# ==========================================
+# OSTALE KONFIGURACIJSKE VARIJABLE
+# ==========================================
+SYMFONY_DIR="${REPO_DIR}/phpmeetupHuman"
+DB_NAME="symfony_db"
+DB_USER="symfony_user"
+DB_PASS=$(openssl rand -hex 16)
+APP_SECRET=$(openssl rand -hex 24)
+
+# ==========================================
+# ISKLJUČIVANJE INTERAKCIJE ZA APT-GET
 # ==========================================
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 export NEEDRESTART_SUSPEND=1
 
 APT_FLAGS="-y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
-
-# ==========================================
-# KONFIGURACIJSKE VARIJABLE
-# ==========================================
-REPO_URL="https://github.com/tjakopec/phpmeetup.git"
-REPO_DIR="/var/www/phpmeetup_repo"
-SYMFONY_DIR="${REPO_DIR}/phpmeetupHuman"
-
-DOMAIN="unixoidi.pro"
-ADMIN_EMAIL="tjakopec@gmail.com" 
-
-DB_NAME="symfony_db"
-DB_USER="symfony_user"
-DB_PASS=$(openssl rand -hex 16)
-APP_SECRET=$(openssl rand -hex 24)
 
 # ==========================================
 # 1. AŽURIRANJE I DODAVANJE PHP REPOZITORIJA
