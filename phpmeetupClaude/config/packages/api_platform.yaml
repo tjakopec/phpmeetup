@@ -3,6 +3,7 @@ api_platform:
     description: 'REST API for calculating shipping prices for parcels within Croatia.'
     version: '1.0.0'
     formats:
+        jsonld: ['application/ld+json']
         json: ['application/json']
     docs_formats:
         json: ['application/json']
@@ -16,3 +17,7 @@ api_platform:
         App\Exception\UnresolvablePostalCodeException: 422
         App\Exception\OversizedParcelException: 422
         App\Exception\NoTariffFoundException: 500
+    mapping:
+        paths: 
+            - '%kernel.project_dir%/src/Entity'
+            - '%kernel.project_dir%/src/Dto'

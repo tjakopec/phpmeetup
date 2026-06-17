@@ -10,19 +10,21 @@ use App\State\ShippingQuoteProcessor;
 use Symfony\Component\Validator\Constraints as Assert;
 
 #[ApiResource(
+    shortName: 'ShippingQuote',
     operations: [
         new Post(
             uriTemplate: '/shipping/quotes',
             output: ShippingQuoteOutput::class,
             processor: ShippingQuoteProcessor::class,
+            provider: null, 
             openapiContext: [
                 'summary' => 'Calculate a shipping price quote',
-                'description' => 'Returns a shipping price quote for a parcel within Croatia based on postal code, weight, dimensions, and service type.',
+                'description' => 'Returns a shipping price quote for a parcel within Croatia.',
                 'tags' => ['Shipping'],
             ],
         ),
     ],
-    formats: ['json'],
+    formats: ['json' => ['application/json']],
 )]
 final class ShippingQuoteInput
 {
