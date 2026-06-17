@@ -6,6 +6,7 @@ namespace App\Repositories;
 
 use App\Exceptions\DomainException;
 use App\Parsers\ZoneParser;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 final class ZoneRepository
 {
@@ -13,6 +14,7 @@ final class ZoneRepository
     private ?array $zones = null;
 
     public function __construct(
+        #[Autowire('%kernel.project_dir%/config/shipping/zones.yaml')]
         private readonly string $zoneFilePath
     ) {
     }

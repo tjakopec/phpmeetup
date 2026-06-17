@@ -8,18 +8,20 @@ use App\Calculator\ShippingCalculator;
 use App\Dto\ParcelDimensions;
 use App\Dto\ShippingQuoteRequest;
 use App\Exceptions\ValidationException;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
-use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\Routing\Attribute\Route;
+use OpenApi\Attributes as OA;
 
 /**
  * Shipping Quote Controller
  * Handles API requests for shipping quotes
  */
-final class ShippingQuoteController
+final class ShippingQuoteController extends AbstractController
 {
     public function __construct(
         private readonly ShippingCalculator $calculator
@@ -31,7 +33,13 @@ final class ShippingQuoteController
      * 
      * Calculate shipping quote based on package details and destination
      */
-    #[Route('/api/shipping/quote', name: 'app_shipping_quote', methods: ['POST'])]
+    #[Route('/api/shipping/quotes', name: 'app_shipping_quote', methods: ['POST'])]
+    #[OA\Post(
+        path: '/api/shipping/quotes',
+        responses: [
+            new OA\Response(response: 200, description: 'Success')
+        ]
+    )]
     public function __invoke(Request $request): JsonResponse
     {
         try {

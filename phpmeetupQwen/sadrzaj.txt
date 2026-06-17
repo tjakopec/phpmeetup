@@ -1,0 +1,1474 @@
+--- SADRŽAJ DATOTEKA ---
+========================================
+FILE: ./phpunit.xml
+========================================
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.5/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         displayDetailsOnTestsThatTriggerWarnings = "true"
+>
+  <source>
+    <include>
+      <directory suffix=".php">src/</directory>
+    </include>
+    <exclude>
+      <directory suffix=".php">src/Exception/</directory>
+    </exclude>
+  </source>
+
+  <testsuites>
+    <testsuite name="App Test Suite">
+      <directory>tests/</directory>
+    </testsuite>
+  </testsuites>
+
+  <php>
+    <env name="APP_ENV" value="test" />
+    <env name="APP_DEBUG" value="1" />
+  </php>
+</phpunit>-e 
+
+========================================
+FILE: ./config/services.yaml
+========================================
+# config/services.yaml
+# Services configuration for Symfony dependency injection
+
+services:
+    # Default service configuration
+    _defaults:
+        autowire: true
+        autoconfigure: true
+        public: false
+
+    # App namespace
+    App\:
+        resource: '../src/'
+        exclude:
+            - '../src/Dto/'
+            - '../src/Enums/'
+            - '../src/Exceptions/'
+
+    # Controllers (made public for routing)
+    App\Controller\ShippingQuoteController:
+        public: true
+        tags: ['controller.service_arguments']
+
+    # Repositories
+    App\Repositories\TariffRepository:
+        arguments:
+            $tariffsDirectory: '%kernel.project_dir%/config/shipping'
+
+    App\Repositories\ZoneRepository:
+        arguments:
+            $zonesFilePath: '%kernel.project_dir%/config/shipping/zones.yaml'
+
+    App\Repositories\SettingsRepository:
+        arguments:
+            $settingsFilePath: '%kernel.project_dir%/config/shipping/settings.json'
+
+    # Calculator
+    App\Calculator\ShippingCalculator: ~
+-e 
+
+========================================
+FILE: ./config/shipping/settings.json
+========================================
+{
+    "volumetric_divisor": 5000,
+    "default_priority_multiplier": 1.5,
+    "currency": "EUR",
+    "vat_inclusive": false
+}-e 
+
+========================================
+FILE: ./config/shipping/limits.json
+========================================
+{
+    "regular": {
+        "max_weight_kg": 30,
+        "max_longest_side_cm": 200,
+        "max_dimensions_sum_cm": 300
+    },
+    "priority": {
+        "max_weight_kg": 30,
+        "max_longest_side_cm": 150,
+        "max_dimensions_sum_cm": 250
+    }
+}-e 
+
+========================================
+FILE: ./config/shipping/tariffs_regular.json
+========================================
+{
+    "service_type": "regular",
+    "currency": "EUR",
+    "weight_tiers": [
+        { "min_kg": 0.0, "max_kg": 1.0, "base_price": 3.50 },
+        { "min_kg": 1.0, "max_kg": 2.0, "base_price": 4.20 },
+        { "min_kg": 2.0, "max_kg": 5.0, "base_price": 5.80 },
+        { "min_kg": 5.0, "max_kg": 10.0, "base_price": 8.50 },
+        { "min_kg": 10.0, "max_kg": 20.0, "base_price": 14.00 },
+        { "min_kg": 20.0, "max_kg": 30.0, "base_price": 22.00 }
+    ]
+}-e 
+
+========================================
+FILE: ./config/shipping/tariffs_priority.json
+========================================
+{
+    "service_type": "priority",
+    "currency": "EUR",
+    "weight_tiers": [
+        { "min_kg": 0.0, "max_kg": 1.0, "base_price": 5.25 },
+        { "min_kg": 1.0, "max_kg": 2.0, "base_price": 6.30 },
+        { "min_kg": 2.0, "max_kg": 5.0, "base_price": 8.70 },
+        { "min_kg": 5.0, "max_kg": 10.0, "base_price": 12.75 },
+        { "min_kg": 10.0, "max_kg": 20.0, "base_price": 21.00 },
+        { "min_kg": 20.0, "max_kg": 30.0, "base_price": 33.00 }
+    ]
+}-e 
+
+========================================
+FILE: ./config/shipping/zones.yaml
+========================================
+# Croatian shipping zones based on geographic region
+zones:
+    mainland:
+        id: 'mainland'
+        label: 'Mainland'
+        surcharge: 0.00
+        delivery_days_base: 2
+        postal_codes:
+            - '10000'-'10999'
+            - '20000'-'29999'
+            - '31000'-'38999'
+            - '40000'-'49999'
+            - '51000'-'52999'
+
+    island:
+        id: 'island'
+        label: 'Island'
+        surcharge: 3.50
+        delivery_days_base: 3
+        postal_codes:
+            - '23240'
+            - '52460'
+            - '51230'-'51299'
+            - '52570'
+            - '20230'
+
+    remote:
+        id: 'remote'
+        label: 'Remote/Mountain'
+        surcharge: 5.00
+        delivery_days_base: 4
+        postal_codes: []-e 
+
+========================================
+FILE: ./config/routes.yaml
+========================================
+# config/routes.yaml
+# Route configuration
+
+app_shipping_quote:
+    path: /api/shipping/quote
+    controller: App\Controller\ShippingQuoteController::__invoke
+    methods: POST-e 
+
+========================================
+FILE: ./phpstan.neon
+========================================
+parameters:
+    level: 8
+    paths: ['src']
+    checkMissingIterableValueType: false
+    inferPrivatePropertyTypeFromConstructor: true
+    reportMaybesInMethodSignatures: false
+    reportWrongThingsWrittenInFiles: false
+
+bootstrapFiles:
+    - vendor/autoload.php-e 
+
+========================================
+FILE: ./.php-cs-fixer.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+$finder = PhpCsFixer\Finder::create()
+    ->in(__DIR__.'/src')
+    ->in(__DIR__.'/tests')
+    ->ignoreDotFiles(true)
+    ->ignoreVCS(true)
+;
+
+return (new PhpCsFixer\Config())
+    ->setRiskyAllowed(true)
+    ->setRules([
+        '@PSR12' => true,
+        '@PHP80Migration' => true,
+        'array_syntax' => ['syntax' => 'short'],
+        'no_unused_imports' => true,
+        'ordered_imports' => ['sort_algorithm' => 'alpha'],
+        'single_quote' => true,
+        'trailing_comma_in_multiline' => true,
+        'no_empty_statement' => true,
+        'no_extra_blank_lines' => true,
+        'no_whitespace_in_blank_line' => true,
+        'concat_space' => ['spacing' => 'one'],
+        'blank_line_before_statement' => [
+            'statements' => ['declare'],
+        ],
+    ])
+    ->setFinder($finder)
+;-e 
+
+========================================
+FILE: ./composer.json
+========================================
+{
+    "name": "phpmeetup/shipping-price-calculator",
+    "description": "Stateless REST API for calculating shipping prices for parcels within Croatia",
+    "type": "project",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.3",
+        "api-platform/core": "^4.0",
+        "symfony/config": "^7.0",
+        "symfony/dependency-injection": "^7.0",
+        "symfony/serializer": "^7.0",
+        "symfony/validator": "^7.0",
+        "symfony/yaml": "^7.0",
+        "phpstan/phpstan": "^1.10"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0",
+        "friendsofphp/php-cs-fixer": "^3.0",
+        "phpstan/phpstan-symfony": "^1.3"
+    },
+    "config": {
+        "allow-plugins": {
+            "api-platform/symfony": true,
+            "phpstan/phpstan": true
+        }
+    }
+}-e 
+
+========================================
+FILE: ./src/Dto/PriceBreakdown.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Dto;
+
+final class PriceBreakdown
+{
+    public function __construct(
+        private readonly float $basePrice,
+        private readonly float $zoneSurcharge,
+        private readonly ?float $oversizeFee
+    ) {
+    }
+
+    public function getBasePrice(): float
+    {
+        return $this->basePrice;
+    }
+
+    public function getZoneSurcharge(): float
+    {
+        return $this->zoneSurcharge;
+    }
+
+    public function getOversizeFee(): ?float
+    {
+        return $this->oversizeFee;
+    }
+
+    public function getSubtotal(): float
+    {
+        $subtotal = $this->basePrice + $this->zoneSurcharge;
+        if ($this->oversizeFee !== null) {
+            $subtotal += $this->oversizeFee;
+        }
+        return $subtotal;
+    }
+
+    /** @return array<string, float|null> */
+    public function toArray(): array
+    {
+        return [
+            'base_price' => round($this->basePrice, 2),
+            'zone_surcharge' => round($this->zoneSurcharge, 2),
+            'oversize_fee' => $this->oversizeFee !== null ? round($this->oversizeFee, 2) : null,
+        ];
+    }
+}-e 
+
+========================================
+FILE: ./src/Dto/ParcelDimensions.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Dto;
+
+final class ParcelDimensions
+{
+    public function __construct(
+        private readonly float $weightKg,
+        private readonly float $lengthCm,
+        private readonly float $widthCm,
+        private readonly float $heightCm
+    ) {
+    }
+
+    public function getWeightKg(): float
+    {
+        return $this->weightKg;
+    }
+
+    public function getLengthCm(): float
+    {
+        return $this->lengthCm;
+    }
+
+    public function getWidthCm(): float
+    {
+        return $this->widthCm;
+    }
+
+    public function getHeightCm(): float
+    {
+        return $this->heightCm;
+    }
+
+    /** @return array<string, float> */
+    public function toArray(): array
+    {
+        return [
+            'weight_kg' => $this->weightKg,
+            'length_cm' => $this->lengthCm,
+            'width_cm' => $this->widthCm,
+            'height_cm' => $this->heightCm,
+        ];
+    }
+
+    /** Get the longest side in cm */
+    public function getLongestSideCm(): float
+    {
+        return max($this->lengthCm, $this->widthCm, $this->heightCm);
+    }
+
+    /** Get the sum of all dimensions in cm */
+    public function getDimensionsSumCm(): float
+    {
+        return $this->lengthCm + $this->widthCm + $this->heightCm;
+    }
+}-e 
+
+========================================
+FILE: ./src/Dto/VolumeCalculator.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Dto;
+
+final class VolumeCalculator
+{
+    /**
+     * Calculate volumetric weight in kg from dimensions in cm.
+     * Formula: (L × W × H) / divisor
+     */
+    public static function calculate(float $length, float $width, float $height, int $divisor = 5000): float
+    {
+        if ($length <= 0 || $width <= 0 || $height <= 0) {
+            return 0.0;
+        }
+
+        return ($length * $width * $height) / $divisor;
+    }
+
+    /**
+     * Calculate dimensional weight (charged weight) from actual and volumetric weight.
+     * The charged weight is the greater of the two.
+     */
+    public static function calculateChargedWeight(float $actualWeightKg, float $lengthCm, float $widthCm, float $heightCm, int $divisor = 5000): float
+    {
+        $volumetricWeight = self::calculate($lengthCm, $widthCm, $heightCm, $divisor);
+        return max($actualWeightKg, $volumetricWeight);
+    }
+}-e 
+
+========================================
+FILE: ./src/Dto/ShippingQuoteRequest.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Dto;
+
+use App\Enums\ServiceType;
+use App\Exceptions\ValidationException;
+
+final class ShippingQuoteRequest
+{
+    /** @param array<string, mixed> $data */
+    public static function fromArray(array $data): self
+    {
+        // Validate required fields
+        $missing = [];
+        foreach (['service_type', 'origin_zone_code', 'destination_zone_code'] as $field) {
+            if (!isset($data[$field])) {
+                $missing[] = $field;
+            }
+        }
+
+        if (!empty($missing)) {
+            throw new ValidationException(
+                array_combine($missing, array_map(fn($f) => "Missing required field: {$f}", $missing)),
+                422
+            );
+        }
+
+        // Parse service type
+        $serviceType = ServiceType::fromLabel((string)$data['service_type']);
+
+        // Build parcel if not provided
+        $parcel = $data['parcel'] ?? [
+            'weight_kg' => 1.0,
+            'length_cm' => 30,
+            'width_cm' => 20,
+            'height_cm' => 15,
+        ];
+
+        // Validate parcel dimensions
+        $parcelErrors = self::validateParcel($parcel);
+        if (!empty($parcelErrors)) {
+            throw new ValidationException($parcelErrors, 422);
+        }
+
+        return new self(
+            $serviceType,
+            (string)$data['origin_zone_code'],
+            (string)$data['destination_zone_code'],
+            $parcel
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        return [
+            'service_type' => $this->serviceType->value,
+            'origin_zone_code' => $this->originZoneCode,
+            'destination_zone_code' => $this->destinationZoneCode,
+            'parcel' => $this->parcel->toArray(),
+        ];
+    }
+
+    public function __construct(
+        private ServiceType $serviceType,
+        private string $originZoneCode,
+        private string $destinationZoneCode,
+        private ParcelDimensions $parcel
+    ) {
+    }
+
+    public function getServiceType(): ServiceType
+    {
+        return $this->serviceType;
+    }
+
+    public function getOriginZoneCode(): string
+    {
+        return $this->originZoneCode;
+    }
+
+    public function getDestinationZoneCode(): string
+    {
+        return $this->destinationZoneCode;
+    }
+
+    public function getParcel(): ParcelDimensions
+    {
+        return $this->parcel;
+    }
+
+    /** @return array<string, string[]> */
+    private static function validateParcel(array $parcel): array
+    {
+        $errors = [];
+
+        if (!isset($parcel['weight_kg']) || $parcel['weight_kg'] <= 0) {
+            $errors['weight_kg'] = ['Weight must be greater than 0'];
+        }
+
+        foreach (['length_cm', 'width_cm', 'height_cm'] as $dim) {
+            if (!isset($parcel[$dim]) || $parcel[$dim] <= 0) {
+                $errors[$dim][] = "{$dim} must be greater than 0";
+            }
+        }
+
+        return $errors;
+    }
+}-e 
+
+========================================
+FILE: ./src/Dto/ShippingQuoteResponse.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Dto;
+
+use App\Enums\ServiceType;
+
+final class ShippingQuoteResponse
+{
+    public function __construct(
+        private readonly ServiceType $serviceType,
+        private readonly PriceBreakdown $priceBreakdown,
+        private readonly float $chargedWeightKg,
+        private readonly string $currency,
+        private readonly bool $isVatInclusive
+    ) {
+    }
+
+    public function getServiceType(): ServiceType
+    {
+        return $this->serviceType;
+    }
+
+    public function getPriceBreakdown(): PriceBreakdown
+    {
+        return $this->priceBreakdown;
+    }
+
+    public function getChargedWeightKg(): float
+    {
+        return $this->chargedWeightKg;
+    }
+
+    public function getCurrency(): string
+    {
+        return $this->currency;
+    }
+
+    public function isVatInclusive(): bool
+    {
+        return $this->isVatInclusive;
+    }
+
+    /** Total price including all fees */
+    public function getTotalPrice(): float
+    {
+        $subtotal = $this->priceBreakdown->getSubtotal();
+        if ($this->serviceType === ServiceType::PRIORITY) {
+            $subtotal *= 1.5;
+        }
+        return round($subtotal, 2);
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        $totalPrice = $this->getTotalPrice();
+        $response = [
+            'service_type' => $this->serviceType->value,
+            'charged_weight_kg' => round($this->chargedWeightKg, 2),
+            'currency' => $this->currency,
+            'price_breakdown' => $this->priceBreakdown->toArray(),
+            'total_price' => $totalPrice,
+        ];
+
+        if ($this->serviceType === ServiceType::PRIORITY) {
+            $response['priority_multiplier'] = 1.5;
+        }
+
+        return $response;
+    }
+}-e 
+
+========================================
+FILE: ./src/Parsers/TariffParser.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Parsers;
+
+use App\Exceptions\DomainException;
+
+final class TariffParser
+{
+    /** @return array<string, mixed> */
+    public static function parseFile(string $path): array
+    {
+        if (!file_exists($path)) {
+            throw new DomainException("Tariff file not found: {$path}");
+        }
+
+        $content = file_get_contents($path);
+        if ($content === false) {
+            throw new DomainException("Cannot read tariff file: {$path}");
+        }
+
+        return self::parseJson($content);
+    }
+
+    /** @return array<string, mixed> */
+    public static function parseJson(string $json): array
+    {
+        $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($data)) {
+            throw new DomainException("Invalid tariff JSON data");
+        }
+
+        // Validate required fields
+        if (!isset($data['service_type']) || !isset($data['currency']) || !isset($data['weight_tiers'])) {
+            throw new DomainException("Tariff data must contain 'service_type', 'currency', and 'weight_tiers'");
+        }
+
+        return $data;
+    }
+}-e 
+
+========================================
+FILE: ./src/Parsers/ZoneParser.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Parsers;
+
+use App\Exceptions\DomainException;
+
+final class ZoneParser
+{
+    /** @return array<string, mixed> */
+    public static function parseFile(string $path): array
+    {
+        if (!file_exists($path)) {
+            throw new DomainException("Zone file not found: {$path}");
+        }
+
+        $content = file_get_contents($path);
+        if ($content === false) {
+            throw new DomainException("Cannot read zone file: {$path}");
+        }
+
+        // Parse YAML manually (simple structure)
+        return self::parseYaml($content);
+    }
+
+    /** @return array<string, mixed> */
+    public static function parseYaml(string $yaml): array
+    {
+        $result = [];
+        $lines = explode("\n", $yaml);
+        $currentZone = null;
+        $currentSection = null;
+
+        foreach ($lines as $line) {
+            // Skip comments and empty lines
+            $trimmed = trim($line);
+            if ($trimmed === '' || str_starts_with($trimmed, '#') || str_starts_with($trimmed, '---')) {
+                continue;
+            }
+
+            $indent = strlen($line) - strlen(ltrim($line));
+
+            // Top-level key (zones)
+            if ($indent === 0 && str_ends_with($trimmed, ':')) {
+                $currentZone = rtrim($trimmed, ':');
+                $result[$currentZone] = [];
+                continue;
+            }
+
+            // Zone code
+            if ($indent === 4 && str_ends_with($trimmed, ':')) {
+                $currentSection = rtrim($trimmed, ':');
+                $result[$currentZone][$currentSection] = [];
+                continue;
+            }
+
+            // Values
+            if (str_contains($trimmed, ':') && $currentZone !== null) {
+                [$key, $value] = explode(':', $trimmed, 2);
+                $value = trim($value);
+
+                // Convert numeric values
+                if (is_numeric($value)) {
+                    $value = strpos($value, '.') !== false ? (float)$value : (int)$value;
+                }
+
+                if ($currentSection !== null) {
+                    $result[$currentZone][$currentSection][trim($key)] = $value;
+                } else {
+                    $result[$currentZone][$key] = $value;
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    /** @return array<string, mixed> */
+    public static function parseJson(string $json): array
+    {
+        $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($data)) {
+            throw new DomainException("Invalid zone JSON data");
+        }
+        return $data;
+    }
+}-e 
+
+========================================
+FILE: ./src/Calculator/ShippingCalculator.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Calculator;
+
+use App\Dto\ParcelDimensions;
+use App\Dto\PriceBreakdown;
+use App\Dto\ShippingQuoteRequest;
+use App\Dto\ShippingQuoteResponse;
+use App\Dto\VolumeCalculator;
+use App\Enums\ServiceType;
+use App\Exceptions\DomainException;
+use App\Exceptions\ValidationException;
+use App\Repositories\SettingsRepository;
+use App\Repositories\TariffRepository;
+use App\Repositories\ZoneRepository;
+
+final class ShippingCalculator
+{
+    public function __construct(
+        private readonly TariffRepository $tariffRepo,
+        private readonly ZoneRepository $zoneRepo,
+        private readonly SettingsRepository $settingsRepo
+    ) {
+    }
+
+    /** Calculate shipping quote for a request */
+    public function calculate(ShippingQuoteRequest $request): ShippingQuoteResponse
+    {
+        $this->validateRequest($request);
+
+        // Get charged weight (actual or volumetric, whichever is greater)
+        $chargedWeight = $this->calculateChargedWeight($request);
+
+        // Calculate price breakdown using the default service type
+        $serviceType = $request->getServiceType() ?? ServiceType::REGULAR;
+
+        $basePrice = $this->tariffRepo->getBasePrice($serviceType, $chargedWeight);
+        $currency = $this->tariffRepo->getCurrency($serviceType);
+        $vatPercentage = $this->settingsRepo->getVatPercentage();
+
+        $priceBreakdown = $this->buildPriceBreakdown(
+            $basePrice,
+            $serviceType,
+            $chargedWeight,
+            $request->getDestinationZone(),
+            $currency,
+            $vatPercentage
+        );
+
+        // Round totals if enabled
+        if ($this->settingsRepo->isRoundingEnabled()) {
+            $precision = $this->settingsRepo->getRoundingPrecision();
+            $priceBreakdown = new PriceBreakdown(
+                round($priceBreakdown->getFuelSurcharge(), $precision),
+                round($priceBreakdown->getZoneSurcharge(), $precision),
+                round($priceBreakdown->getSubtotal(), $precision),
+                round($priceBreakdown->getVatAmount(), $precision)
+            );
+        }
+
+        return new ShippingQuoteResponse(
+            $serviceType,
+            $priceBreakdown,
+            $chargedWeight,
+            $currency,
+            true // VAT inclusive by default
+        );
+    }
+
+    /** Validate the shipping request */
+    private function validateRequest(ShippingQuoteRequest $request): void
+    {
+        $errors = [];
+
+        // Validate dimensions exist
+        if ($request->getDimensions() !== null) {
+            $dimensions = $request->getDimensions();
+            if ($dimensions->getWidthCm() <= 0 || $dimensions->getHeightCm() <= 0 || $dimensions->getLengthCm() <= 0) {
+                $errors[] = 'Dimensions must be greater than 0';
+            }
+
+            // Check single dimension limit (200cm per Plan.txt section 4.1)
+            $maxSingleDimension = 200;
+            if ($dimensions->getWidthCm() > $maxSingleDimension ||
+                $dimensions->getHeightCm() > $maxSingleDimension ||
+                $dimensions->getLengthCm() > $maxSingleDimension) {
+                $errors[] = 'Single dimension exceeds maximum allowed (200cm)';
+            }
+
+            // Check max weight
+            $maxWeight = 50;
+            if ($request->getWeightKg() > $maxWeight) {
+                $errors[] = "Weight exceeds maximum allowed ({$maxWeight}kg)";
+            }
+
+            // Check minimum weight
+            if ($request->getWeightKg() <= 0) {
+                $errors[] = 'Weight must be greater than 0';
+            }
+        }
+
+        // Validate destination zone
+        $destinationZone = $request->getDestinationZone();
+        if (!$this->zoneRepo->isValidZone($destinationZone)) {
+            $validZones = implode(', ', $this->zoneRepo->getAllZoneCodes());
+            throw new ValidationException("Invalid destination zone: {$destinationZone}. Valid zones: {$validZones}");
+        }
+
+        // Validate service type
+        if ($request->getServiceType() === null) {
+            // Default to REGULAR is fine
+        }
+
+        if (!empty($errors)) {
+            throw new ValidationException(implode('; ', $errors));
+        }
+    }
+
+    /** Calculate the charged weight (actual vs volumetric) */
+    private function calculateChargedWeight(ShippingQuoteRequest $request): float
+    {
+        // If no dimensions provided, use actual weight as charged weight
+        if ($request->getDimensions() === null) {
+            return $request->getWeightKg();
+        }
+
+        $dimensions = $request->getDimensions();
+        $volumetricWeight = VolumeCalculator::calculate(
+            $dimensions->getWidthCm(),
+            $dimensions->getHeightCm(),
+            $dimensions->getLengthCm(),
+            $this->settingsRepo->getDefaultDivisor()
+        );
+
+        return round(max($request->getWeightKg(), $volumetricWeight), 2);
+    }
+
+    /** Build the price breakdown for the shipping quote */
+    private function buildPriceBreakdown(
+        float $basePrice,
+        ServiceType $serviceType,
+        float $chargedWeight,
+        string $destinationZone,
+        string $currency,
+        float $vatPercentage
+    ): PriceBreakdown {
+        // Apply priority multiplier (1.5x for Priority)
+        if ($serviceType === ServiceType::PRIORITY) {
+            $basePrice = round($basePrice * 1.5, 2);
+        }
+
+        // Zone surcharge (percentage from zone config)
+        $zoneSurchargePercent = $this->zoneRepo->getZoneSurcharge($destinationZone);
+        $fuelSurchargeAmount = round($basePrice * 0.10, 2); // 10% fuel surcharge
+        $zoneSurchargeAmount = round($basePrice * ($zoneSurchargePercent / 100), 2);
+
+        // Subtotal before VAT
+        $subtotal = round($basePrice + $fuelSurchargeAmount + $zoneSurchargeAmount, 2);
+
+        // VAT calculation
+        $vatAmount = round($subtotal * ($vatPercentage / 100), 2);
+
+        return new PriceBreakdown(
+            $fuelSurchargeAmount,
+            $zoneSurchargeAmount,
+            $subtotal,
+            $vatAmount
+        );
+    }
+}-e 
+
+========================================
+FILE: ./src/Enums/ServiceType.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Enums;
+
+enum ServiceType: string
+{
+    case REGULAR = 'regular';
+    case PRIORITY = 'priority';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::REGULAR => 'Regular',
+            self::PRIORITY => 'Priority',
+        };
+    }
+
+    public static function fromLabel(string $label): self
+    {
+        return match (strtolower($label)) {
+            'regular' => self::REGULAR,
+            'priority' => self::PRIORITY,
+            default => throw new \InvalidArgumentException("Unknown service type: {$label}"),
+        };
+    }
+}-e 
+
+========================================
+FILE: ./src/Repositories/ZoneRepository.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repositories;
+
+use App\Exceptions\DomainException;
+use App\Parsers\ZoneParser;
+
+final class ZoneRepository
+{
+    /** @var array<string, mixed>|null */
+    private ?array $zones = null;
+
+    public function __construct(
+        private readonly string $zoneFilePath
+    ) {
+    }
+
+    /** Get zone data by code */
+    public function getZone(string $code): array
+    {
+        $zones = $this->loadZones();
+
+        if (!isset($zones['zones'][$code])) {
+            throw new DomainException("Zone not found: {$code}");
+        }
+
+        return $zones['zones'][$code];
+    }
+
+    /** Get zone surcharge for a destination zone */
+    public function getZoneSurcharge(string $destinationCode): float
+    {
+        $zone = $this->getZone($destinationCode);
+
+        if (!isset($zone['surcharge'])) {
+            throw new DomainException("Zone surcharge not defined for: {$destinationCode}");
+        }
+
+        return (float)$zone['surcharge'];
+    }
+
+    /** Check if zone code is valid */
+    public function isValidZone(string $code): bool
+    {
+        $zones = $this->loadZones();
+        return isset($zones['zones'][$code]);
+    }
+
+    /** @return array<string, mixed> */
+    private function loadZones(): array
+    {
+        if ($this->zones === null) {
+            $this->zones = ZoneParser::parseFile($this->zoneFilePath);
+        }
+        return $this->zones;
+    }
+
+    /** Get all available zone codes */
+    /** @return string[] */
+    public function getAllZoneCodes(): array
+    {
+        $zones = $this->loadZones();
+        return array_keys($zones['zones'] ?? []);
+    }
+}-e 
+
+========================================
+FILE: ./src/Repositories/SettingsRepository.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repositories;
+
+use App\Exceptions\DomainException;
+
+final class SettingsRepository
+{
+    public function __construct(
+        private readonly string $settingsFilePath
+    ) {
+    }
+
+    /** Get a specific setting value */
+    public function get(string $key, mixed $default = null): mixed
+    {
+        $settings = $this->loadSettings();
+        return $settings[$key] ?? $default;
+    }
+
+    /** Get all settings as array */
+    /** @return array<string, mixed> */
+    public function getAll(): array
+    {
+        return $this->loadSettings();
+    }
+
+    /** Get default divisor for volumetric calculation */
+    public function getDefaultDivisor(): int
+    {
+        return (int)$this->get('volumetric_divisor', 5000);
+    }
+
+    /** Get VAT percentage */
+    public function getVatPercentage(): float
+    {
+        return (float)$this->get('vat_percentage', 25.0);
+    }
+
+    /** Check if rounding is enabled */
+    public function isRoundingEnabled(): bool
+    {
+        return (bool)$this->get('rounding_enabled', true);
+    }
+
+    /** Get rounding precision */
+    public function getRoundingPrecision(): int
+    {
+        return (int)$this->get('rounding_precision', 2);
+    }
+
+    /** @return array<string, mixed> */
+    private function loadSettings(): array
+    {
+        if (!file_exists($this->settingsFilePath)) {
+            throw new DomainException("Settings file not found: {$this->settingsFilePath}");
+        }
+
+        $content = file_get_contents($this->settingsFilePath);
+        if ($content === false) {
+            throw new DomainException("Cannot read settings file: {$this->settingsFilePath}");
+        }
+
+        $data = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($data)) {
+            throw new DomainException("Invalid settings JSON data");
+        }
+
+        return $data;
+    }
+}-e 
+
+========================================
+FILE: ./src/Repositories/TariffRepository.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repositories;
+
+use App\Enums\ServiceType;
+use App\Exceptions\DomainException;
+use App\Parsers\TariffParser;
+
+final class TariffRepository
+{
+    /** @var array<string, array<string, mixed>> */
+    private array $tariffs = [];
+
+    public function __construct(
+        private readonly string $tariffsDirectory
+    ) {
+    }
+
+    /** Get the base price for a service type and weight */
+    public function getBasePrice(ServiceType $serviceType, float $weightKg): float
+    {
+        $tariff = $this->loadTariff($serviceType);
+        $basePrice = self::calculateWeightedPrice($tariff['weight_tiers'], $weightKg);
+
+        if ($basePrice === null) {
+            throw new DomainException(
+                "No tariff found for service: {$serviceType->value}, weight: {$weightKg}kg"
+            );
+        }
+
+        return (float)$basePrice;
+    }
+
+    /** Get the currency from the tariff */
+    public function getCurrency(ServiceType $serviceType): string
+    {
+        $tariff = $this->loadTariff($serviceType);
+        return (string)$tariff['currency'];
+    }
+
+    /** Check if a weight is within allowed limits for a service type */
+    public function isWeightAllowed(ServiceType $serviceType, float $weightKg): bool
+    {
+        $tariff = $this->loadTariff($serviceType);
+        $maxWeight = $tariff['max_weight_kg'] ?? 30;
+        return $weightKg <= $maxWeight && $weightKg > 0;
+    }
+
+    /** @return array<string, mixed> */
+    private function loadTariff(ServiceType $serviceType): array
+    {
+        $fileName = $serviceType === ServiceType::REGULAR
+            ? 'tariffs_regular.json'
+            : 'tariffs_priority.json';
+
+        if (isset($this->tariffs[$fileName])) {
+            return $this->tariffs[$fileName];
+        }
+
+        $filePath = "{$this->tariffsDirectory}/{$fileName}";
+        $this->tariffs[$fileName] = TariffParser::parseFile($filePath);
+
+        return $this->tariffs[$fileName];
+    }
+
+    /** Calculate weighted price from weight tiers */
+    private static function calculateWeightedPrice(array $weightTiers, float $weightKg): ?float
+    {
+        // Sort tiers by max_weight ascending
+        usort($weightTiers, function ($a, $b) {
+            return $a['max_weight_kg'] <=> $b['max_weight_kg'];
+        });
+
+        foreach ($weightTiers as $tier) {
+            if ($weightKg <= $tier['max_weight_kg']) {
+                return $tier['price'];
+            }
+        }
+
+        // Weight exceeds all tiers - return the max price
+        $lastTier = end($weightTiers);
+        return $lastTier !== false ? $lastTier['price'] : null;
+    }
+
+    /** Get max weight for a service type */
+    public function getMaxWeight(ServiceType $serviceType): float
+    {
+        $tariff = $this->loadTariff($serviceType);
+        return (float)($tariff['max_weight_kg'] ?? 30);
+    }
+}-e 
+
+========================================
+FILE: ./src/Exceptions/ValidationException.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Exceptions;
+
+final class ValidationException extends ShippingException
+{
+    /** @var array<string, string[]> */
+    private array $errors = [];
+
+    public function __construct(array $errors, int $code = 422)
+    {
+        $this->errors = $errors;
+        parent::__construct(self::formatErrors($errors), $code);
+    }
+
+    /** @return array<string, string[]> */
+    public function getErrors(): array
+    {
+        return $this->errors;
+    }
+
+    private static function formatErrors(array $errors): string
+    {
+        $messages = [];
+        foreach ($errors as $field => $fieldErrors) {
+            foreach ($fieldErrors as $error) {
+                $messages[] = "{$field}: {$error}";
+            }
+        }
+        return 'Validation failed: ' . implode(', ', $messages);
+    }
+}-e 
+
+========================================
+FILE: ./src/Exceptions/DomainException.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Exceptions;
+
+final class DomainException extends ShippingException
+{
+    public function __construct(string $message = '', int $code = 400, ?\Throwable $previous = null)
+    {
+        parent::__construct($message, $code, $previous);
+    }
+}-e 
+
+========================================
+FILE: ./src/Exceptions/ShippingException.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Exceptions;
+
+use RuntimeException;
+
+abstract class ShippingException extends RuntimeException
+{
+    public function __construct(
+        string $message = '',
+        int $code = 0,
+        ?\Throwable $previous = null
+    ) {
+        parent::__construct($message, $code, $previous);
+    }
+}-e 
+
+========================================
+FILE: ./src/Controller/ShippingQuoteController.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App\Controller;
+
+use App\Calculator\ShippingCalculator;
+use App\Dto\ParcelDimensions;
+use App\Dto\ShippingQuoteRequest;
+use App\Exceptions\ValidationException;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
+use Symfony\Component\Routing\Annotation\Route;
+
+/**
+ * Shipping Quote Controller
+ * Handles API requests for shipping quotes
+ */
+final class ShippingQuoteController
+{
+    public function __construct(
+        private readonly ShippingCalculator $calculator
+    ) {
+    }
+
+    /**
+     * POST /api/shipping/quote
+     * 
+     * Calculate shipping quote based on package details and destination
+     */
+    #[Route('/api/shipping/quote', name: 'app_shipping_quote', methods: ['POST'])]
+    public function __invoke(Request $request): JsonResponse
+    {
+        try {
+            $payload = json_decode($request->getContent(), true, 512, JSON_THROW_ON_ERROR);
+            
+            // Parse and validate request
+            $shippingRequest = $this->parseRequest($payload);
+
+            // Calculate the shipping quote
+            $quote = $this->calculator->calculate($shippingRequest);
+
+            return new JsonResponse([
+                'success' => true,
+                'data' => $quote->toArray(),
+            ], Response::HTTP_OK);
+
+        } catch (ValidationException $e) {
+            return new JsonResponse([
+                'success' => false,
+                'error' => [
+                    'code' => 'VALIDATION_ERROR',
+                    'message' => $e->getMessage(),
+                ],
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (BadRequestHttpException $e) {
+            return new JsonResponse([
+                'success' => false,
+                'error' => [
+                    'code' => 'BAD_REQUEST',
+                    'message' => 'Invalid request payload format.',
+                    'details' => $e->getMessage(),
+                ],
+            ], Response::HTTP_BAD_REQUEST);
+
+        } catch (\InvalidArgumentException $e) {
+            return new JsonResponse([
+                'success' => false,
+                'error' => [
+                    'code' => 'INVALID_INPUT',
+                    'message' => $e->getMessage(),
+                ],
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\Exception $e) {
+            return new JsonResponse([
+                'success' => false,
+                'error' => [
+                    'code' => 'INTERNAL_ERROR',
+                    'message' => 'An unexpected error occurred.',
+                ],
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Parse the JSON payload into a ShippingQuoteRequest DTO
+     */
+    private function parseRequest(array $payload): ShippingQuoteRequest
+    {
+        // Validate required fields exist
+        $requiredFields = ['weight_kg', 'destination_zone'];
+        foreach ($requiredFields as $field) {
+            if (!isset($payload[$field])) {
+                throw new BadRequestHttpException("Missing required field: {$field}");
+            }
+        }
+
+        // Parse dimensions if provided
+        $dimensions = null;
+        if (isset($payload['dimensions']) && is_array($payload['dimensions'])) {
+            $dims = $payload['dimensions'];
+            
+            if (!isset($dims['width_cm'], $dims['height_cm'], $dims['length_cm'])) {
+                throw new BadRequestHttpException('Dimensions must include width_cm, height_cm, and length_cm');
+            }
+
+            $dimensions = new ParcelDimensions(
+                (float)$dims['width_cm'],
+                (float)$dims['height_cm'],
+                (float)$dims['length_cm']
+            );
+        }
+
+        // Parse service type if provided
+        $serviceType = null;
+        if (isset($payload['service_type'])) {
+            $serviceType = \App\Enums\ServiceType::from(strtolower($payload['service_type']));
+        }
+
+        return new ShippingQuoteRequest(
+            weightKg: (float)$payload['weight_kg'],
+            destinationZone: (string)$payload['destination_zone'],
+            dimensions: $dimensions,
+            serviceType: $serviceType,
+            hasInsurance: (bool)($payload['has_insurance'] ?? false),
+            insuranceValue: isset($payload['insurance_value']) ? (float)$payload['insurance_value'] : null,
+            isFragile: (bool)($payload['is_fragile'] ?? false)
+        );
+    }
+}-e 
+
+========================================
+FILE: ./src/Kernel.php
+========================================
+<?php
+
+declare(strict_types=1);
+
+namespace App;
+
+use App\Calculator\ShippingCalculator;
+use App\Repositories\SettingsRepository;
+use App\Repositories\TariffRepository;
+use App\Repositories\ZoneRepository;
+use App\Controller\ShippingQuoteController;
+
+/**
+ * Application Kernel - Boots the application and sets up dependency injection
+ */
+final class Kernel
+{
+    private readonly ShippingCalculator $calculator;
+    private readonly ShippingQuoteController $controller;
+
+    public function __construct(
+        private readonly string $projectDir
+    ) {
+    }
+
+    /** Get the configured shipping calculator */
+    public function getShippingCalculator(): ShippingCalculator
+    {
+        return $this->calculator;
+    }
+
+    /** Get the shipping quote controller */
+    public function getShippingQuoteController(): ShippingQuoteController
+    {
+        return $this->controller;
+    }
+
+    /** Boot the application and initialize services */
+    public function boot(): void
+    {
+        $tariffsDir = "{$this->projectDir}/config/shipping";
+        
+        $tariffRepo = new TariffRepository($tariffsDir);
+        $zoneRepo = new ZoneRepository("{$this->projectDir}/config/shipping/zones.yaml");
+        $settingsRepo = new SettingsRepository("{$this->projectDir}/config/shipping/settings.json");
+
+        $this->calculator = new ShippingCalculator(
+            $tariffRepo,
+            $zoneRepo,
+            $settingsRepo
+        );
+
+        $this->controller = new ShippingQuoteController($this->calculator);
+    }
+}-e 
+

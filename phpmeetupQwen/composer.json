@@ -16,7 +16,11 @@
         "symfony/serializer": "^7.0",
         "symfony/validator": "^7.0",
         "symfony/yaml": "^7.0",
-        "phpstan/phpstan": "^1.10"
+        "phpstan/phpstan": "^1.10",
+        "symfony/framework-bundle": "^8.0",
+        "symfony/runtime": "^8.1",
+        "nelmio/api-doc-bundle": "^5.10",
+        "symfony/twig-bundle": "^8.1"
     },
     "require-dev": {
         "phpunit/phpunit": "^10.0",
@@ -26,7 +30,8 @@
     "config": {
         "allow-plugins": {
             "api-platform/symfony": true,
-            "phpstan/phpstan": true
+            "phpstan/phpstan": true,
+            "symfony/runtime": true
         }
     }
 }

@@ -1,7 +1,5 @@
 # config/routes.yaml
 # Route configuration
-
-app_shipping_quote:
-    path: /api/shipping/quote
-    controller: App\Controller\ShippingQuoteController::__invoke
-    methods: POST
+controllers:
+    resource: ../src/Controller/
+    type: attribute
