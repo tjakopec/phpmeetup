@@ -129,3 +129,21 @@ izlaz
   },
   "chargeableWeight": 2.4
 }
+
+
+phpmeetupQwen fix sat vremena
+curl -X POST https://127.0.0.1:8000/api/shipping/quotes \
+     -H "Content-Type: application/json" \
+     -d '{
+          "weight_kg": 2.4,
+          "destination_zone": "mainland",
+          "dimensions": {
+              "length_cm": 30,
+              "width_cm": 20,
+              "height_cm": 15
+          },
+          "service_type": "regular"
+         }'
+
+
+<!-- Too few arguments to function App\Dto\ParcelDimensions::__construct(), 3 passed in /opt/homebrew/var/www/phpmeetup/phpmeetupQwen/src/Controller/ShippingQuoteController.php on line 120 and exactly 4 expected (500 Internal Server Error) -->
