@@ -65,3 +65,27 @@ php bin/console doctrine:fixtures:load --env=test --group=all -n
 vendor/bin/phpunit --filter ApiRateLimiterTest
 
 
+phpmeetupClaude fix sat vremena
+za ulaz
+{
+  "postalCode": "10000",
+  "weight": 2.4,
+  "dimensions": { "length": 30, "width": 20, "height": 15 },
+  "serviceType": "regular"
+}
+vraća
+{
+  "price": 4.62,
+  "currency": "EUR",
+  "serviceType": "regular",
+  "estimatedDeliveryDays": 3,
+  "breakdown": {
+    "base": 4.62,
+    "weightSurcharge": 0,
+    "dimensionalSurcharge": 0,
+    "zoneSurcharge": 0,
+    "priorityMultiplier": 1
+  }
+}
+
+Procjena dotjerivanja do Human rješenja: 
