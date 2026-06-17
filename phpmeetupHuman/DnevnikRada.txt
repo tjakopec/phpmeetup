@@ -88,4 +88,14 @@ vraća
   }
 }
 
-Procjena dotjerivanja do Human rješenja: 
+
+
+phpmeetupGemini fix ništa 0
+ulaz
+{
+  "postalCode": "10000",
+  "weight": 2.4,
+  "dimensions": { "length": 30, "width": 20, "height": 15 },
+  "serviceType": "regular"
+}
+
