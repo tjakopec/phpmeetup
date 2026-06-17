@@ -99,3 +99,33 @@ ulaz
   "serviceType": "regular"
 }
 
+izlaz
+{
+  "@context": {
+    "@vocab": "https://localhost:8000/api/docs.jsonld#",
+    "hydra": "http://www.w3.org/ns/hydra/core#",
+    "totalPrice": "ShippingQuoteResponse/totalPrice",
+    "estimatedDeliveryDays": "ShippingQuoteResponse/estimatedDeliveryDays",
+    "breakdown": "ShippingQuoteResponse/breakdown",
+    "chargeableWeight": "ShippingQuoteResponse/chargeableWeight"
+  },
+  "@type": "ShippingQuoteResponse",
+  "@id": "/api/.well-known/genid/1682d4ed01406abddc94",
+  "totalPrice": 8,
+  "estimatedDeliveryDays": 3,
+  "breakdown": {
+    "@context": {
+      "@vocab": "https://localhost:8000/api/docs.jsonld#",
+      "hydra": "http://www.w3.org/ns/hydra/core#",
+      "basePrice": "PriceBreakdown/basePrice",
+      "zoneSurcharge": "PriceBreakdown/zoneSurcharge",
+      "prioritySurcharge": "PriceBreakdown/prioritySurcharge"
+    },
+    "@type": "PriceBreakdown",
+    "@id": "/api/.well-known/genid/dda7b0151a90ddfa5e8f",
+    "basePrice": 8,
+    "zoneSurcharge": 0,
+    "prioritySurcharge": 0
+  },
+  "chargeableWeight": 2.4
+}
