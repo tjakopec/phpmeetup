@@ -59,6 +59,7 @@ document.getElementById('shippingForm').addEventListener('submit', async (e) => 
         const baseUrl = window.location.origin; 
         const apiUrl = `${baseUrl}/api/shipping/quotes`;
         const startTime = performance.now();
+        
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 
@@ -68,12 +69,34 @@ document.getElementById('shippingForm').addEventListener('submit', async (e) => 
             body: JSON.stringify(payload)
         });
         
+        // Obrada specifičnih HTTP statusa
+        if (!response.ok) {
+            if (response.status === 422) {
+                const errorData = await response.json();
+                // Spajanje svih poruka iz niza violations u jednu string poruku
+                const messages = errorData.violations.map(v => v.message).join('<br>');
+                const resDiv = document.getElementById('result');
+                resDiv.classList.remove('hidden');
+                resDiv.innerHTML = `
+                    <p>Greška</p>
+                    <hr>
+                    <small>
+                        ${messages}
+                    </small>
+                `;
+                return; // Prekida daljnje izvršavanje
+            }
+            throw new Error(`Server returned ${response.status}`);
+        }
+
         const data = await response.json();
         const endTime = performance.now();
         const duration = (endTime - startTime).toFixed(2);
         const resDiv = document.getElementById('result');
         resDiv.classList.remove('hidden');
+        
         const formatHR = (num) => num.toLocaleString('hr-HR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        
         resDiv.innerHTML = `
             Zahtjev trajao: ${duration} ms
             <h3>Ukupno: ${formatHR(data.price)} ${data.currency}</h3>
@@ -86,6 +109,7 @@ document.getElementById('shippingForm').addEventListener('submit', async (e) => 
             </small>
         `;
     } catch (err) {
+        console.error(err);
         alert("Greška pri dohvaćanju podataka. Provjerite lokalni server.");
     }
 });
