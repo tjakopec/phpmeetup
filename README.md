@@ -95,7 +95,7 @@ Before proceeding, the script prompts for the following environment details (def
 Upon completion, the script outputs a summary dashboard containing the installation URL, database credentials, and directory paths. Ensure you save these credentials in a secure password manager.
 
 
-## Dependency list
+## Human dependency list
 | Name | Version | Description | Est. CVEs (2 yrs) |
 | :--- | :--- | :--- | :--- |
 | php | >=8.4 | Server-side scripting language | ~15+ |
@@ -276,15 +276,11 @@ Upon completion, the script outputs a summary dashboard containing the installat
 ```
 
 ## AI analysis of completion
-### Claude 40%
-### Comparative Analysis of Key Components
+### Claude 50%
+### Gemini 30% (no database)
+### Qwen 5% (no database)
 
-| Component | Baseline (100%) | AI Agent | AI Score |
-| :--- | :--- | :--- | :--- |
-| **Security** | Complete system (`User` entity, `AppCustomAuthenticator`, `SecurityController`, `security.yaml`) | Completely omitted | **Critical failure** |
-| **Data Validation** | Specific validators (Croatian postal codes, shipping limits, service existence) | Relies only on the basic Symfony validator | **Significant failure** |
-| **API Architecture** | Uses DTOs for requests and responses, `QuoteProcessor` | Uses DTOs, `ShippingQuoteProcessor` | **Good (but deviates in naming)** |
-| **Business Logic (Domain)** | Complex logic with multiple entities (Post offices, zones, tariffs, service types) | Simplified (Postal codes, tariffs, zones) | **Partially correct** |
-| **Static Analysis** | `phpstan.neon` and `phpstan-baseline.neon` | Only `phpstan.neon` | **Satisfactory** |
-| **Testing (QA)** | Granular tests (Edge cases, Multipliers, Volumetric weight, API Rate Limiting) | Only two basic tests (Unit and API) | **Critical failure** |
-| **Rate Limiting** | Configured (`rate_limiter.yaml`) and tested | Completely omitted | **Failure** |
+### Review Notes:
+- **phpmeetupClaude**: Implemented core requirements including API Platform, DTOs, a proper calculator service interface, Doctrine ORM entities, data fixtures, and a test suite. However, it completely missed the advanced architectural features present in the baseline (Security, Web Frontend, Event Listeners, Rate Limiting, and Custom Validation Constraints).
+- **phpmeetupGemini**: Implemented API Platform integration, the calculator service architecture, and test coverage. It failed to implement any form of database persistence (missing ORM Entities, Repositories, and Fixtures) relying on hardcoded configuration instead. It also missed all the advanced features (Security, Logging, Web Frontend, Rate Limiting, etc.).
+- **phpmeetupQwen**: The furthest from the baseline. It abandoned API Platform entirely for a standard Symfony Controller, missed the interface for the calculator service, and relied on JSON file parsing instead of a database/ORM. It had no tests, no security, no frontend, and none of the baseline's advanced architectural features.
